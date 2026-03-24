@@ -8,3 +8,5 @@ DerivedData/
 .netrc
 *.xcodeproj
 .claude/
+scripts/download-stats.sh
+scripts/RELEASE-GUIDE.md
