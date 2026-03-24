@@ -85,13 +85,9 @@ echo "→ Building universal binary..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-swift build -c release --arch arm64 --arch x86_64 2>&1 | tail -5
-BINARY_PATH="$ROOT_DIR/.build/apple/Products/Release/$APP_NAME"
-if [ ! -f "$BINARY_PATH" ]; then
-    # Fallback for single-arch build
-    swift build -c release 2>&1 | tail -3
-    BINARY_PATH="$ROOT_DIR/.build/release/$APP_NAME"
-fi
+# Build release (native arch — universal requires full Xcode Metal toolchain)
+swift build -c release 2>&1 | tail -5
+BINARY_PATH="$ROOT_DIR/.build/release/$APP_NAME"
 
 if [ ! -f "$BINARY_PATH" ]; then
     echo "ERROR: Build failed, binary not found"

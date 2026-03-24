@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>OptaKube Updates</title>
+    <link>https://raw.githubusercontent.com/souriscloud/optakube/main/appcast.xml</link>
+    <description>Most recent changes with links to updates.</description>
+    <language>en</language>
+    <item>
+      <title>Version 0.1.0</title>
+      <pubDate>Wed, 25 Mar 2026 00:34:14 +0100</pubDate>
+      <sparkle:version>7060628</sparkle:version>
+      <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h2>OptaKube 0.1.0</h2>
+        <p>See <a href="https://github.com/souriscloud/optakube/blob/main/CHANGELOG.md">CHANGELOG</a> for details.</p>
+      ]]></description>
+      <enclosure
+        url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="sparkle:edSignature="06bXuniSh+R8HFCYYEggRBL7Ux8WRltXBGgklDlf0Byh6uDQTNlP7yv5a6xQlde4UlINa40mxfcx9njDXFvuAw==" length="7060628""
+        length="7060628"
+      />
+    </item>
+  </channel>
+</rss>
