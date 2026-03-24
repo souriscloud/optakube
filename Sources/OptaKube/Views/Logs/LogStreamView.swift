@@ -325,7 +325,7 @@ struct LogStreamView: View {
     }
 
     private func shortPodName(_ name: String) -> String {
-        // Show last 5 chars of pod name for compact display (like Aptakube)
+        // Show last 5 chars of pod name for compact display
         if name.count > 8 {
             return String(name.suffix(5))
         }

@@ -11,15 +11,18 @@ struct PortForwardMenuBarView: View {
             // Active cluster windows
             if !windowManager.activeWindows.isEmpty {
                 ForEach(Array(windowManager.activeWindows.values), id: \.id) { vm in
-                    let name = vm.activeConnections.first?.name ?? "Cluster"
+                    let conn = vm.activeConnections.first
+                    let connId = conn?.id ?? ""
+                    let custom = ClusterCustomizationStore.shared.get(for: connId)
+                    let displayName = custom.displayName ?? conn?.name ?? "Cluster"
                     Button {
                         showWindow(for: vm)
                     } label: {
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(.green)
-                                .frame(width: 6, height: 6)
-                            Text(name)
+                                .fill(custom.color)
+                                .frame(width: 8, height: 8)
+                            Text(displayName)
                                 .lineLimit(1)
                             Spacer()
                             Text("Show")

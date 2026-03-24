@@ -39,9 +39,7 @@ struct WelcomeWindow: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image(systemName: "square.stack.3d.up")
-                .font(.system(size: 48))
-                .foregroundStyle(.blue)
+            AppIconView(size: 64)
                 .padding(.top, 24)
 
             Text("Welcome to OptaKube")
@@ -232,20 +230,36 @@ struct ClusterConnectionRow: View {
     let testResult: WelcomeWindow.ConnectionTestResult?
     let onToggle: () -> Void
     let onTest: () -> Void
+    @State private var showCustomize = false
+
+    private var custom: ClusterCustomization {
+        ClusterCustomizationStore.shared.get(for: connection.id)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
+            // Selection checkbox
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
                 .foregroundStyle(isSelected ? .blue : .secondary)
                 .onTapGesture { onToggle() }
 
+            // Cluster color dot
+            Circle()
+                .fill(custom.color)
+                .frame(width: 10, height: 10)
+
             VStack(alignment: .leading, spacing: 3) {
-                Text(connection.name)
+                Text(custom.displayName ?? connection.name)
                     .font(.body)
                     .fontWeight(.medium)
 
                 HStack(spacing: 8) {
+                    if custom.displayName != nil {
+                        Text(connection.name)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     Label(serverHost, systemImage: "server.rack")
                     Label(authLabel, systemImage: authIcon)
                 }
@@ -257,6 +271,20 @@ struct ClusterConnectionRow: View {
 
             if let result = testResult {
                 testResultView(result)
+            }
+
+            // Customize button
+            Button {
+                showCustomize = true
+            } label: {
+                Image(systemName: "paintbrush")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Rename & colorize")
+            .popover(isPresented: $showCustomize) {
+                ClusterCustomizePopover(connectionId: connection.id, originalName: connection.name)
             }
 
             Button("Test") { onTest() }

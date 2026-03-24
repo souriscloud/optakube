@@ -118,6 +118,7 @@ final class AppViewModel: Identifiable {
 
     var isLoading: Bool = false
     var errorMessage: String?
+    var lastRefreshTime: Date?
 
     private var refreshTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
@@ -226,7 +227,7 @@ final class AppViewModel: Identifiable {
         } catch {
             await MainActor.run { errorMessage = error.localizedDescription }
         }
-        await MainActor.run { isLoading = false }
+        await MainActor.run { isLoading = false; lastRefreshTime = Date() }
     }
 
     func selectCRD(_ crd: CRDDefinition) {
@@ -314,7 +315,7 @@ final class AppViewModel: Identifiable {
             await MainActor.run { errorMessage = error.localizedDescription }
         }
 
-        await MainActor.run { isLoading = false }
+        await MainActor.run { isLoading = false; lastRefreshTime = Date() }
 
         // Fetch metrics for resource types that display them
         if [.pods, .nodes].contains(selectedResourceType) {
@@ -380,19 +381,24 @@ final class AppViewModel: Identifiable {
 
         watchTask = Task.detached { [weak self] in
             guard let self = self else { return }
-            while !Task.isCancelled {
+            var failCount = 0
+            while !Task.isCancelled && failCount < 5 {
                 do {
+                    failCount = 0  // Reset on successful connection
                     try await self.runWatch(client: client, resourceType: type, namespace: ns, clusterId: clusterId)
                 } catch is CancellationError {
                     break
                 } catch K8sError.watchGone {
-                    // ResourceVersion expired — just break, auto-refresh will re-list
                     break
                 } catch {
                     guard !Task.isCancelled else { break }
-                    try? await Task.sleep(for: .seconds(3))
+                    failCount += 1
+                    // Exponential backoff: 3s, 9s, 27s, 81s, then give up
+                    let delay = min(3.0 * pow(3.0, Double(failCount - 1)), 120.0)
+                    try? await Task.sleep(for: .seconds(delay))
                 }
             }
+            // Watch gave up — auto-refresh will handle updates
         }
     }
 

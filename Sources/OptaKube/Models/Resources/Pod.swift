@@ -55,6 +55,7 @@ struct Container: Codable, Sendable, Identifiable {
     var args: [String]?
     var ports: [ContainerPort]?
     var env: [EnvVar]?
+    var envFrom: [EnvFromSource]?
     var resources: ResourceRequirements?
     var volumeMounts: [VolumeMount]?
     var livenessProbe: Probe?
@@ -62,6 +63,17 @@ struct Container: Codable, Sendable, Identifiable {
     var startupProbe: Probe?
 
     var id: String { name }
+}
+
+struct EnvFromSource: Codable, Sendable {
+    var prefix: String?
+    var configMapRef: EnvFromRef?
+    var secretRef: EnvFromRef?
+}
+
+struct EnvFromRef: Codable, Sendable {
+    var name: String?
+    var optional: Bool?
 }
 
 struct Probe: Codable, Sendable {

@@ -177,20 +177,23 @@ struct MainWindow: View {
     }
 
     private var connectedClustersLabel: some View {
-        let names = viewModel.activeConnections.map(\.name)
-        return HStack(spacing: 4) {
-            if !names.isEmpty {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 6))
-                    .foregroundStyle(.green)
-                Text(names.joined(separator: ", "))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        return HStack(spacing: 6) {
+            ForEach(viewModel.activeConnections) { conn in
+                let custom = ClusterCustomizationStore.shared.get(for: conn.id)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(custom.color)
+                        .frame(width: 7, height: 7)
+                    Text(custom.displayName ?? conn.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
         }
-        .frame(maxWidth: 200)
+        .padding(.horizontal, 8)
+        .frame(minWidth: 60, maxWidth: 220)
     }
 
     private func kubeconfigPathForConnection(_ conn: ClusterConnection) -> String? {

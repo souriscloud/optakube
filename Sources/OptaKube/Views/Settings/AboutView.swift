@@ -3,27 +3,14 @@ import SwiftUI
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 16) {
-            // App icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(LinearGradient(
-                        colors: [.blue, .cyan],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "square.stack.3d.up")
-                    .font(.system(size: 36, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .padding(.top, 16)
+            AppIconView(size: 80)
+                .padding(.top, 16)
 
             Text("OptaKube")
                 .font(.title)
                 .fontWeight(.bold)
 
-            Text("Version 0.1.0")
+            Text("Version \(AppInfo.version) (\(AppInfo.build))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -49,13 +36,29 @@ struct AboutView: View {
 
             Divider().frame(width: 200)
 
-            Text("A free clone of Aptakube")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            VStack(spacing: 6) {
+                Text("Made by Souris.CLOUD")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Link("bio.souris.cloud", destination: URL(string: "https://bio.souris.cloud")!)
+                    .font(.caption)
+                Link(destination: URL(string: "https://ko-fi.com/souriscloud")!) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "cup.and.saucer.fill")
+                        Text("Support on Ko-fi")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color(red: 1.0, green: 0.36, blue: 0.42).opacity(0.15))
+                    .foregroundStyle(Color(red: 1.0, green: 0.36, blue: 0.42))
+                    .clipShape(Capsule())
+                }
+            }
 
             Spacer().frame(height: 8)
         }
-        .frame(width: 300, height: 340)
+        .frame(width: 300, height: 380)
     }
 
     private func badge(_ text: String, color: Color) -> some View {
@@ -67,4 +70,15 @@ struct AboutView: View {
             .foregroundStyle(color)
             .clipShape(Capsule())
     }
+}
+
+enum AppInfo {
+    /// Single source of truth — reads from Info.plist at runtime, falls back to hardcoded
+    static let version: String = {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+    }()
+    static let build: String = {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }()
+    static let bundleId = "cloud.souris.optakube"
 }

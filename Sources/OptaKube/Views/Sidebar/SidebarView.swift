@@ -123,11 +123,21 @@ struct SidebarView: View {
 struct ClusterRow: View {
     let connection: ClusterConnection
     let status: ConnectionStatus
+    @State private var showCustomize = false
+
+    private var custom: ClusterCustomization {
+        ClusterCustomizationStore.shared.get(for: connection.id)
+    }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
+            // Color dot
+            Circle()
+                .fill(custom.color)
+                .frame(width: 10, height: 10)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(connection.name)
+                Text(custom.displayName ?? connection.name)
                     .fontWeight(.medium)
                     .lineLimit(1)
 
@@ -141,9 +151,15 @@ struct ClusterRow: View {
 
             Circle()
                 .fill(statusColor)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
         }
         .padding(.vertical, 2)
+        .contextMenu {
+            Button("Customize...") { showCustomize = true }
+        }
+        .popover(isPresented: $showCustomize) {
+            ClusterCustomizePopover(connectionId: connection.id, originalName: connection.name)
+        }
     }
 
     private var statusText: String {
@@ -161,6 +177,71 @@ struct ClusterRow: View {
         case .connecting: return .orange
         case .connected: return .green
         case .error: return .red
+        }
+    }
+}
+
+struct ClusterCustomizePopover: View {
+    let connectionId: String
+    let originalName: String
+    @State private var displayName: String = ""
+    @State private var selectedColor: String = "blue"
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Customize Cluster")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Display Name").font(.caption).foregroundStyle(.secondary)
+                TextField(originalName, text: $displayName)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Color").font(.caption).foregroundStyle(.secondary)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 6), count: 6), spacing: 6) {
+                    ForEach(ClusterCustomization.availableColors, id: \.name) { item in
+                        Circle()
+                            .fill(item.color)
+                            .frame(width: 24, height: 24)
+                            .overlay {
+                                if selectedColor == item.name {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                            .onTapGesture { selectedColor = item.name }
+                    }
+                }
+            }
+
+            HStack {
+                Button("Reset") {
+                    ClusterCustomizationStore.shared.reset(for: connectionId)
+                    dismiss()
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    let custom = ClusterCustomization(
+                        displayName: displayName.isEmpty ? nil : displayName,
+                        colorName: selectedColor
+                    )
+                    ClusterCustomizationStore.shared.set(custom, for: connectionId)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+        .frame(width: 260)
+        .onAppear {
+            let c = ClusterCustomizationStore.shared.get(for: connectionId)
+            displayName = c.displayName ?? ""
+            selectedColor = c.colorName ?? "blue"
         }
     }
 }

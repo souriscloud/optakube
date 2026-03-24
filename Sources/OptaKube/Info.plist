@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.optakube.app</string>
+    <string>cloud.souris.optakube</string>
     <key>CFBundleName</key>
     <string>OptaKube</string>
     <key>CFBundleDisplayName</key>

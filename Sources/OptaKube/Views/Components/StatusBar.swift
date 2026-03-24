@@ -5,17 +5,18 @@ struct StatusBar: View {
     @Environment(AppViewModel.self) private var viewModel
     @Binding var showTerminal: Bool
     var pfManager = PortForwardManager.shared
+    var customStore = ClusterCustomizationStore.shared
 
     var body: some View {
         HStack(spacing: 10) {
-            // Connection status
+            // Connection status with custom names/colors
             ForEach(viewModel.activeConnections) { conn in
                 let status = viewModel.connectionStatuses[conn.id] ?? .disconnected
                 HStack(spacing: 3) {
                     Circle()
-                        .fill(statusColor(status))
+                        .fill(customStore.color(for: conn.id))
                         .frame(width: 6, height: 6)
-                    Text(conn.name)
+                    Text(customStore.displayName(for: conn))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -24,7 +25,9 @@ struct StatusBar: View {
             Divider().frame(height: 12)
 
             // Resource count
-            Text(resourceCountText)
+            if !viewModel.showClusterOverview {
+                Text(resourceCountText)
+            }
 
             // Active port forwards
             if !pfManager.activeForwards.isEmpty {
@@ -51,10 +54,22 @@ struct StatusBar: View {
 
             Spacer()
 
+            // Last refresh time
+            if let lastRefresh = viewModel.lastRefreshTime {
+                Text(lastRefreshText(lastRefresh))
+                    .foregroundStyle(.tertiary)
+            }
+
             if viewModel.isLoading {
                 ProgressView()
                     .controlSize(.mini)
             }
+
+            Divider().frame(height: 12)
+
+            // Version
+            Text("v\(AppInfo.version)")
+                .foregroundStyle(.tertiary)
 
             // Terminal toggle
             Button {
@@ -82,13 +97,14 @@ struct StatusBar: View {
         .background(.bar)
     }
 
-    private func statusColor(_ status: ConnectionStatus) -> Color {
-        switch status {
-        case .disconnected: return .gray
-        case .connecting: return .orange
-        case .connected: return .green
-        case .error: return .red
-        }
+    private func lastRefreshText(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        if interval < 5 { return "just now" }
+        if interval < 60 { return "\(Int(interval))s ago" }
+        if interval < 3600 { return "\(Int(interval / 60))m ago" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 
     private var resourceCountText: String {

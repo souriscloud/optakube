@@ -73,6 +73,7 @@ struct ResourceListView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(viewModel.selectedCRD?.displayName ?? viewModel.selectedResourceType.displayName)
         .safeAreaInset(edge: .top) {
             if !allItems.isEmpty || viewModel.isLoading {

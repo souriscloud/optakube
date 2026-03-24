@@ -1,6 +1,6 @@
 # OptaKube
 
-A free, native macOS Kubernetes GUI client built with Swift and SwiftUI. Clone of Aptakube.
+A free, native macOS Kubernetes GUI client built with Swift and SwiftUI.
 
 ## Project Structure
 

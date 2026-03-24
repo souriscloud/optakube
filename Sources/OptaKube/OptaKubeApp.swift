@@ -1,10 +1,18 @@
 import SwiftUI
 import AppKit
+import Sparkle
 
 @main
 struct OptaKubeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
+    // Only init Sparkle when running in a proper .app bundle (has CFBundleIdentifier)
+    private let updaterController: SPUStandardUpdaterController? = {
+        if Bundle.main.bundleIdentifier != nil {
+            return SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        }
+        return nil
+    }()
 
     var body: some Scene {
         // Welcome / hub window
@@ -26,6 +34,12 @@ struct OptaKubeApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About OptaKube") {
                     openWindow(id: "about")
+                }
+                if let updater = updaterController {
+                    Divider()
+                    Button("Check for Updates...") {
+                        updater.updater.checkForUpdates()
+                    }
                 }
             }
 

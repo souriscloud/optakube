@@ -20,26 +20,23 @@ A free, native macOS Kubernetes GUI client. Built with Swift and SwiftUI.
 - **Quick actions** — restart, scale, rollback, port forward, debug containers, cordon/drain nodes
 - **Spotlight search** (Cmd+K) — search across all resources, namespaces, types, CRDs
 - **Auth support** — kubeconfig tokens, client certificates (EC + RSA), exec-based (AWS EKS, etc.)
+- **Auto-updates** — via Sparkle framework
 
 ## Install
 
-```bash
-git clone https://github.com/your-username/optakube.git
-cd optakube
-swift build
-.build/debug/OptaKube
-```
+Download the latest release from the [Releases](https://github.com/souriscloud/optakube/releases) page.
 
-Or open in Xcode:
+Or build from source:
 ```bash
-open Package.swift
-# Cmd+R to run
+git clone https://github.com/souriscloud/optakube.git
+cd optakube
+swift build -c release
+open .build/release/OptaKube
 ```
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Swift 5.10+
 - `kubectl` on PATH (for port forwarding)
 
 ## Keyboard Shortcuts
@@ -60,6 +57,13 @@ open Package.swift
 - **SwiftTerm** for embedded terminal
 - **Yams** for YAML parsing
 - **SwiftUI Charts** for metrics visualization
+- **Sparkle** for auto-updates
+
+## Made by
+
+[Souris.CLOUD](https://bio.souris.cloud)
+
+If you find OptaKube useful, consider [supporting on Ko-fi](https://ko-fi.com/souriscloud).
 
 ## License
 

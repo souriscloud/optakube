@@ -9,11 +9,16 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.3"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.5"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
     ],
     targets: [
         .executableTarget(
             name: "OptaKube",
-            dependencies: ["Yams", "SwiftTerm"],
+            dependencies: [
+                "Yams",
+                "SwiftTerm",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/OptaKube",
             exclude: ["Info.plist"],
             resources: [.copy("Resources/AppIcon.icns")]

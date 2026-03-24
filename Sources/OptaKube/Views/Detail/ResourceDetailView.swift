@@ -253,39 +253,7 @@ struct ResourceDetailView: View {
                     }
 
                     // Environment Variables
-                    if let env = container.env, !env.isEmpty {
-                        DetailSection("Environment (\(env.count) vars)") {
-                            VStack(alignment: .leading, spacing: 2) {
-                                ForEach(env, id: \.name) { envVar in
-                                    HStack {
-                                        Text(envVar.name)
-                                            .font(.system(.caption, design: .monospaced))
-                                            .fontWeight(.medium)
-                                        Spacer()
-                                        if envVar.valueFrom?.secretKeyRef != nil {
-                                            Label("secret", systemImage: "lock.fill")
-                                                .font(.caption2)
-                                                .foregroundStyle(.orange)
-                                        } else if let cmRef = envVar.valueFrom?.configMapKeyRef {
-                                            Text("configmap:\(cmRef.name)")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        } else if let fieldRef = envVar.valueFrom?.fieldRef {
-                                            Text(fieldRef.fieldPath)
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        } else if let val = envVar.value, !val.isEmpty {
-                                            Text(val)
-                                                .font(.system(.caption2, design: .monospaced))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .padding(.vertical, 2)
-                                }
-                            }
-                        }
-                    }
+                    ContainerEnvSection(container: container, clusterId: resource.clusterId, namespace: resource.namespace)
 
                     // Resources
                     if let res = container.resources {
@@ -931,6 +899,395 @@ struct NodeDetailContent: View {
             } catch {
                 await MainActor.run { metricsError = error.localizedDescription }
             }
+        }
+    }
+}
+
+// MARK: - Container Environment Section (with envFrom + toggleable values)
+
+struct ContainerEnvSection: View {
+    @Environment(AppViewModel.self) private var viewModel
+    let container: Container
+    let clusterId: String
+    let namespace: String?
+    @State private var revealedVars: Set<String> = []
+    @State private var resolvedValues: [String: String] = [:]  // "varName" -> resolved value
+    @State private var loadingVars: Set<String> = []
+    @State private var showAll = false
+    // envFrom expansion
+    @State private var expandedSources: Set<String> = []  // "secret:name" or "configmap:name"
+    @State private var resolvedSourceKeys: [String: [(key: String, value: String)]] = [:]
+    @State private var loadingSources: Set<String> = []
+
+    private var envCount: Int { container.env?.count ?? 0 }
+    private var envFromCount: Int { container.envFrom?.count ?? 0 }
+
+    private var totalLabel: String {
+        var parts: [String] = []
+        if envCount > 0 { parts.append("\(envCount) vars") }
+        if envFromCount > 0 { parts.append("\(envFromCount) source\(envFromCount == 1 ? "" : "s")") }
+        return parts.joined(separator: " + ")
+    }
+
+    var body: some View {
+        if envCount > 0 || envFromCount > 0 {
+            DetailSection("Environment (\(totalLabel))") {
+                // Refresh button to invalidate caches
+                HStack {
+                    Spacer()
+                    if !resolvedValues.isEmpty || !resolvedSourceKeys.isEmpty {
+                        Button {
+                            resolvedValues.removeAll()
+                            resolvedSourceKeys.removeAll()
+                            revealedVars.removeAll()
+                            expandedSources.removeAll()
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Refresh values")
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    // envFrom sources (entire ConfigMap/Secret injected) — expandable
+                    if let envFrom = container.envFrom, !envFrom.isEmpty {
+                        ForEach(envFrom.indices, id: \.self) { idx in
+                            let src = envFrom[idx]
+                            let sourceId = envFromSourceId(src)
+                            let isExpanded = expandedSources.contains(sourceId)
+                            let isLoading = loadingSources.contains(sourceId)
+
+                            VStack(alignment: .leading, spacing: 0) {
+                                HStack(spacing: 6) {
+                                    // Disclosure indicator
+                                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 10)
+
+                                    if src.secretRef != nil {
+                                        Image(systemName: "lock.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(.orange)
+                                        Text("Secret: \(src.secretRef?.name ?? "?")")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .fontWeight(.medium)
+                                    } else if src.configMapRef != nil {
+                                        Image(systemName: "doc.text")
+                                            .font(.caption2)
+                                            .foregroundStyle(.blue)
+                                        Text("ConfigMap: \(src.configMapRef?.name ?? "?")")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .fontWeight(.medium)
+                                    }
+
+                                    if let prefix = src.prefix, !prefix.isEmpty {
+                                        Text("prefix: \(prefix)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    if isLoading {
+                                        ProgressView().controlSize(.mini)
+                                    } else if let keys = resolvedSourceKeys[sourceId] {
+                                        Text("\(keys.count) keys")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if isExpanded {
+                                        expandedSources.remove(sourceId)
+                                    } else {
+                                        expandedSources.insert(sourceId)
+                                        resolveEnvFromSource(src)
+                                    }
+                                }
+
+                                // Expanded key-value pairs
+                                if isExpanded, let keys = resolvedSourceKeys[sourceId] {
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        ForEach(keys.indices, id: \.self) { ki in
+                                            let kv = keys[ki]
+                                            HStack(alignment: .top, spacing: 6) {
+                                                Text(kv.key)
+                                                    .font(.system(.caption2, design: .monospaced))
+                                                    .fontWeight(.medium)
+                                                    .frame(minWidth: 60, alignment: .trailing)
+                                                Text("=")
+                                                    .font(.system(.caption2, design: .monospaced))
+                                                    .foregroundStyle(.tertiary)
+                                                Text(kv.value)
+                                                    .font(.system(.caption2, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .textSelection(.enabled)
+                                                    .lineLimit(3)
+                                                Spacer()
+                                            }
+                                            .padding(.vertical, 2)
+                                            .padding(.horizontal, 6)
+                                            .padding(.leading, 20)
+                                            .background(ki % 2 == 0 ? Color.clear : Color.primary.opacity(0.02))
+                                        }
+                                    }
+                                }
+                            }
+                            .background(idx % 2 == 0 ? Color.clear : Color.primary.opacity(0.02))
+                        }
+
+                        if envCount > 0 {
+                            Divider().padding(.vertical, 4)
+                        }
+                    }
+
+                    // Individual env vars
+                    if let env = container.env {
+                        let visible = showAll ? env : Array(env.prefix(10))
+                        ForEach(visible.indices, id: \.self) { idx in
+                            envVarRow(visible[idx], idx: idx)
+                        }
+
+                        if env.count > 10 && !showAll {
+                            Button("Show all \(env.count) variables") {
+                                showAll = true
+                            }
+                            .font(.caption)
+                            .padding(.top, 4)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func envVarRow(_ envVar: EnvVar, idx: Int) -> some View {
+        let isRevealed = revealedVars.contains(envVar.name)
+        let isSecret = envVar.valueFrom?.secretKeyRef != nil
+
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if isSecret {
+                    Image(systemName: "lock.fill").font(.system(size: 8)).foregroundStyle(.orange)
+                } else if envVar.valueFrom?.configMapKeyRef != nil {
+                    Image(systemName: "doc.text").font(.system(size: 8)).foregroundStyle(.blue)
+                } else if envVar.valueFrom?.fieldRef != nil {
+                    Image(systemName: "arrow.down.circle").font(.system(size: 8)).foregroundStyle(.purple)
+                }
+
+                Text(envVar.name)
+                    .font(.system(.caption, design: .monospaced))
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if hasRevealableValue(envVar) {
+                    if loadingVars.contains(envVar.name) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Button {
+                            if isRevealed {
+                                revealedVars.remove(envVar.name)
+                            } else {
+                                revealedVars.insert(envVar.name)
+                                resolveValue(envVar)
+                            }
+                        } label: {
+                            Image(systemName: isRevealed ? "eye.slash" : "eye").font(.system(size: 9))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                sourceBadge(envVar)
+            }
+
+            if isRevealed {
+                let displayValue = resolvedValues[envVar.name] ?? valueText(envVar)
+                Text(displayValue)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(10)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 2)
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(idx % 2 == 0 ? Color.clear : Color.primary.opacity(0.02))
+    }
+
+    // MARK: - envFrom resolution
+
+    private func envFromSourceId(_ src: EnvFromSource) -> String {
+        if let s = src.secretRef?.name { return "secret:\(s)" }
+        if let c = src.configMapRef?.name { return "configmap:\(c)" }
+        return "unknown"
+    }
+
+    private func resolveEnvFromSource(_ src: EnvFromSource) {
+        let sourceId = envFromSourceId(src)
+        guard resolvedSourceKeys[sourceId] == nil else { return }  // already resolved
+        guard let client = viewModel.activeClients[clusterId],
+              let ns = namespace else { return }
+
+        loadingSources.insert(sourceId)
+
+        if let secretName = src.secretRef?.name {
+            Task {
+                do {
+                    let secret = try await client.get(Secret.self, resourceType: .secrets, name: secretName, namespace: ns)
+                    let prefix = src.prefix ?? ""
+                    let pairs: [(key: String, value: String)] = (secret.data ?? [:]).sorted(by: { $0.key < $1.key }).map { k, v in
+                        let decoded = Data(base64Encoded: v).flatMap { String(data: $0, encoding: .utf8) } ?? v
+                        return (key: "\(prefix)\(k)", value: decoded)
+                    }
+                    await MainActor.run {
+                        resolvedSourceKeys[sourceId] = pairs
+                        loadingSources.remove(sourceId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        resolvedSourceKeys[sourceId] = [(key: "error", value: error.localizedDescription)]
+                        loadingSources.remove(sourceId)
+                    }
+                }
+            }
+        } else if let cmName = src.configMapRef?.name {
+            Task {
+                do {
+                    let cm = try await client.get(ConfigMap.self, resourceType: .configMaps, name: cmName, namespace: ns)
+                    let prefix = src.prefix ?? ""
+                    let pairs: [(key: String, value: String)] = (cm.data ?? [:]).sorted(by: { $0.key < $1.key }).map { k, v in
+                        (key: "\(prefix)\(k)", value: v)
+                    }
+                    await MainActor.run {
+                        resolvedSourceKeys[sourceId] = pairs
+                        loadingSources.remove(sourceId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        resolvedSourceKeys[sourceId] = [(key: "error", value: error.localizedDescription)]
+                        loadingSources.remove(sourceId)
+                    }
+                }
+            }
+        }
+    }
+
+    private func hasRevealableValue(_ envVar: EnvVar) -> Bool {
+        envVar.value != nil || envVar.valueFrom != nil
+    }
+
+    private func valueText(_ envVar: EnvVar) -> String {
+        if let val = envVar.value, !val.isEmpty { return val }
+        if let s = envVar.valueFrom?.secretKeyRef { return "secret:\(s.name)/\(s.key)" }
+        if let c = envVar.valueFrom?.configMapKeyRef { return "configmap:\(c.name)/\(c.key)" }
+        if let f = envVar.valueFrom?.fieldRef { return "fieldRef:\(f.fieldPath)" }
+        return "(empty)"
+    }
+
+    private func resolveValue(_ envVar: EnvVar) {
+        // Plain value — already available
+        if let val = envVar.value, !val.isEmpty {
+            resolvedValues[envVar.name] = val
+            return
+        }
+
+        guard let client = viewModel.activeClients[clusterId],
+              let ns = namespace else { return }
+
+        // Secret key ref — fetch the secret and decode the specific key
+        if let secretRef = envVar.valueFrom?.secretKeyRef {
+            loadingVars.insert(envVar.name)
+            Task {
+                do {
+                    let secret = try await client.get(Secret.self, resourceType: .secrets, name: secretRef.name, namespace: ns)
+                    if let b64 = secret.data?[secretRef.key],
+                       let decoded = Data(base64Encoded: b64),
+                       let value = String(data: decoded, encoding: .utf8) {
+                        await MainActor.run {
+                            resolvedValues[envVar.name] = value
+                            loadingVars.remove(envVar.name)
+                        }
+                    } else {
+                        await MainActor.run {
+                            resolvedValues[envVar.name] = "(key '\(secretRef.key)' not found in secret)"
+                            loadingVars.remove(envVar.name)
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        resolvedValues[envVar.name] = "Error: \(error.localizedDescription)"
+                        loadingVars.remove(envVar.name)
+                    }
+                }
+            }
+            return
+        }
+
+        // ConfigMap key ref — fetch the configmap and get the specific key
+        if let cmRef = envVar.valueFrom?.configMapKeyRef {
+            loadingVars.insert(envVar.name)
+            Task {
+                do {
+                    let cm = try await client.get(ConfigMap.self, resourceType: .configMaps, name: cmRef.name, namespace: ns)
+                    if let value = cm.data?[cmRef.key] {
+                        await MainActor.run {
+                            resolvedValues[envVar.name] = value
+                            loadingVars.remove(envVar.name)
+                        }
+                    } else {
+                        await MainActor.run {
+                            resolvedValues[envVar.name] = "(key '\(cmRef.key)' not found in configmap)"
+                            loadingVars.remove(envVar.name)
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        resolvedValues[envVar.name] = "Error: \(error.localizedDescription)"
+                        loadingVars.remove(envVar.name)
+                    }
+                }
+            }
+            return
+        }
+
+        // Field ref — just show the field path
+        if let fieldRef = envVar.valueFrom?.fieldRef {
+            resolvedValues[envVar.name] = "fieldRef:\(fieldRef.fieldPath)"
+        }
+    }
+
+    @ViewBuilder
+    private func sourceBadge(_ envVar: EnvVar) -> some View {
+        if let s = envVar.valueFrom?.secretKeyRef {
+            Text("\(s.name)/\(s.key)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.orange.opacity(0.8))
+                .lineLimit(1)
+        } else if let c = envVar.valueFrom?.configMapKeyRef {
+            Text("\(c.name)/\(c.key)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.blue.opacity(0.8))
+                .lineLimit(1)
+        } else if let f = envVar.valueFrom?.fieldRef {
+            Text(f.fieldPath)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.purple.opacity(0.8))
+                .lineLimit(1)
         }
     }
 }

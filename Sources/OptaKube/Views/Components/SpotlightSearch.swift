@@ -57,22 +57,30 @@ struct SpotlightSearch: View {
             if !computedResults.isEmpty {
                 Divider()
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(computedResults.indices, id: \.self) { index in
-                            let result = computedResults[index]
-                            SpotlightResultRow(
-                                result: result,
-                                isSelected: index == selectedIndex
-                            )
-                            .onTapGesture {
-                                selectedIndex = index
-                                executeSelected()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(computedResults.indices, id: \.self) { index in
+                                let result = computedResults[index]
+                                SpotlightResultRow(
+                                    result: result,
+                                    isSelected: index == selectedIndex
+                                )
+                                .id(index)
+                                .onTapGesture {
+                                    selectedIndex = index
+                                    executeSelected()
+                                }
                             }
                         }
                     }
+                    .frame(maxHeight: 340)
+                    .onChange(of: selectedIndex) { _, newValue in
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(newValue, anchor: .center)
+                        }
+                    }
                 }
-                .frame(maxHeight: 340)
             } else if !query.isEmpty {
                 Divider()
                 HStack {
