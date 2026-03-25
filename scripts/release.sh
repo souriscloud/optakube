@@ -223,7 +223,7 @@ echo "  DMG: $DMG_PATH ($DMG_SIZE)"
 echo ""
 echo "→ Notarizing..."
 APPLE_ID="${APPLE_ID:-me@souris.cloud}"
-if xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --keychain-profile "notarytool" --wait 2>&1 | tee /dev/stderr | grep -q "Accepted"; then
+if xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --keychain-profile "notarytool" --wait 2>&1 | tee /dev/stderr | grep -q "status: Accepted"; then
     echo "  Notarization: Accepted"
     xcrun stapler staple "$DMG_PATH" 2>&1
     echo "  Stapled"
