@@ -119,6 +119,36 @@ fi
 
 echo "  Bundle: $APP_DIR"
 
+# 3b. Code sign with Developer ID + notarize
+echo ""
+echo "→ Code signing..."
+SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Luk Novotn (26GLU32796)}"
+TEAM_ID="26GLU32796"
+BUNDLE_ID="cloud.souris.optakube"
+
+# Entitlements
+cat > "$BUILD_DIR/entitlements.plist" << 'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
+ENTITLEMENTS
+
+# Sign all frameworks/dylibs first (deep), then the app
+codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" --entitlements "$BUILD_DIR/entitlements.plist" "$APP_DIR" 2>&1
+echo "  Signed: $SIGN_IDENTITY"
+
+# Verify
+codesign --verify --deep --strict "$APP_DIR" 2>&1 && echo "  Verification: OK" || echo "  Verification: FAILED"
+
 # 4. Sign with Sparkle EdDSA
 echo ""
 echo "→ Signing for Sparkle..."
@@ -188,6 +218,20 @@ rm -rf "$DMG_STAGING"
 
 DMG_SIZE=$(du -h "$DMG_PATH" | cut -f1)
 echo "  DMG: $DMG_PATH ($DMG_SIZE)"
+
+# 5b. Notarize the DMG
+echo ""
+echo "→ Notarizing..."
+APPLE_ID="${APPLE_ID:-me@souris.cloud}"
+if xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --keychain-profile "notarytool" --wait 2>&1 | tee /dev/stderr | grep -q "Accepted"; then
+    echo "  Notarization: Accepted"
+    xcrun stapler staple "$DMG_PATH" 2>&1
+    echo "  Stapled"
+else
+    echo "  WARNING: Notarization failed or keychain profile not set."
+    echo "  To set up: xcrun notarytool store-credentials notarytool --apple-id $APPLE_ID --team-id $TEAM_ID"
+    echo "  Then re-run this script."
+fi
 
 # Get EdDSA signature for appcast
 SIGNATURE=""
