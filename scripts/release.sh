@@ -117,6 +117,27 @@ if [ -d "$RESOURCE_BUNDLE" ]; then
     cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Contents/Resources/"
 fi
 
+# Copy Sparkle framework — required at runtime
+mkdir -p "$APP_DIR/Contents/Frameworks"
+SPARKLE_FW=""
+for fw in \
+    "$ROOT_DIR/.build/arm64-apple-macosx/release/Sparkle.framework" \
+    "$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
+    "$ROOT_DIR/.build/apple/Products/Release/Sparkle.framework"; do
+    if [ -d "$fw" ]; then
+        SPARKLE_FW="$fw"
+        break
+    fi
+done
+if [ -n "$SPARKLE_FW" ]; then
+    cp -R "$SPARKLE_FW" "$APP_DIR/Contents/Frameworks/"
+    # Update the rpath so the binary finds the framework
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_DIR/Contents/MacOS/$APP_NAME" 2>/dev/null || true
+    echo "  Sparkle.framework copied"
+else
+    echo "  WARNING: Sparkle.framework not found — app may crash on launch"
+fi
+
 echo "  Bundle: $APP_DIR"
 
 # 3b. Code sign with Developer ID + notarize

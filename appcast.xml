@@ -7,8 +7,8 @@
     <language>en</language>
     <item>
       <title>Version 0.1.0</title>
-      <pubDate>Wed, 25 Mar 2026 01:07:20 +0100</pubDate>
-      <sparkle:version>7006908</sparkle:version>
+      <pubDate>Wed, 25 Mar 2026 01:22:39 +0100</pubDate>
+      <sparkle:version>7973352</sparkle:version>
       <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
@@ -18,8 +18,8 @@
       <enclosure
         url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg"
         type="application/octet-stream"
-        sparkle:edSignature="sparkle:edSignature="sUbj2QzdCFS9jhUlhnZ8Q/w/QLAAZJn5KPoQ/ESTN3FSPjEHREx8WKizWimYtLkbqLJ+vxaTyiJbNcbzmg4IDQ==" length="7006908""
-        length="7006908"
+        sparkle:edSignature="sparkle:edSignature="1UDa5k3zgv44+orfYGB+mBQiGRRfQDfadt77oM7Qisw1ablfEwZ/HlE2Ou/CLgqpdPlopRYQyLUYcOgdwdJPDg==" length="7973352""
+        length="7973352"
       />
     </item>
   </channel>
