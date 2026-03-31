@@ -7,20 +7,19 @@
     <language>en</language>
     <item>
       <title>Version 0.2.0</title>
-      <pubDate>Mon, 31 Mar 2026 14:31:58 +0200</pubDate>
-      <sparkle:version>6</sparkle:version>
+      <pubDate>Tue, 31 Mar 2026 15:03:19 +0200</pubDate>
+      <sparkle:version>7</sparkle:version>
       <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
         <h2>OptaKube 0.2.0</h2>
-        <p>Full log viewer rewrite, cluster customization, icon fix.</p>
         <p>See <a href="https://github.com/souriscloud/optakube/blob/master/CHANGELOG.md">CHANGELOG</a> for details.</p>
       ]]></description>
       <enclosure
         url="https://github.com/souriscloud/optakube/releases/download/v0.2.0/OptaKube-0.2.0.dmg"
         type="application/octet-stream"
-        sparkle:edSignature="ISBdfX1vW4e11hs5FyxxpREtufT0NISgCGvfBsdZmMcQMQLQQfEo8MemRt9VIgjNszVZO8DZ9OGkRa2iPNKjCA=="
-        length="6866078"
+        sparkle:edSignature="OpNY0Xp+XQ7WtTOC2swqF8VxM7cvhIqyAo6fuTeRXe0oJIqb1MouSSTgGl5VzFmjwNvqghBGKehECzZRoFpGCQ=="
+        length="6864190"
       />
     </item>
   </channel>
