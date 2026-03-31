@@ -24,6 +24,10 @@
     <string></string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/souriscloud/optakube/master/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>4uTQZEdMy3jrq7GANt1oiPJuTk1q5pKHJLf6xMjiWz8=</string>
     <key>com.apple.security.network.client</key>
     <true/>
 </dict>

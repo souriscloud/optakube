@@ -276,13 +276,18 @@ cat > "$APPCAST_PATH" << APPCAST_EOF
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>OptaKube Updates</title>
-    <link>https://raw.githubusercontent.com/$GITHUB_REPO/main/appcast.xml</link>
+    <link>https://raw.githubusercontent.com/$GITHUB_REPO/master/appcast.xml</link>
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
     <item>
       <title>Version $VERSION</title>
       <pubDate>$RELEASE_DATE</pubDate>
-      <sparkle:version>$DMG_BYTES</sparkle:version>
+      <sparkle:version>$(python3 -c "
+import re
+with open('Sources/OptaKube/Info.plist') as f:
+    m = re.search(r'<key>CFBundleVersion</key>\s*<string>(\d+)</string>', f.read())
+    print(m.group(1) if m else '1')
+")</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
