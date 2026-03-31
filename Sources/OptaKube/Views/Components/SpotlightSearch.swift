@@ -460,4 +460,5 @@ struct SpotlightResult: Identifiable {
 extension Notification.Name {
     static let toggleTerminal = Notification.Name("toggleTerminal")
     static let selectResource = Notification.Name("selectResource")
+    static let openFullLogs = Notification.Name("openFullLogs")
 }

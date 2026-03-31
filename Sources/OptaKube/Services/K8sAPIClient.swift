@@ -532,11 +532,12 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     // MARK: - Log Streaming
 
-    func streamLogs(namespace: String, podName: String, container: String?, tailLines: Int = 1000, previous: Bool = false) -> AsyncThrowingStream<String, Error> {
+    /// Stream logs with server-side timestamps. Each line is prefixed with RFC3339 timestamp.
+    func streamLogs(namespace: String, podName: String, container: String?, tailLines: Int = 1000, previous: Bool = false) -> AsyncThrowingStream<(Date, String), Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    var urlString = "\(connection.server)/api/v1/namespaces/\(namespace)/pods/\(podName)/log?follow=\(previous ? "false" : "true")&tailLines=\(tailLines)"
+                    var urlString = "\(connection.server)/api/v1/namespaces/\(namespace)/pods/\(podName)/log?follow=\(previous ? "false" : "true")&tailLines=\(tailLines)&timestamps=true"
                     if let c = container {
                         urlString += "&container=\(c)"
                     }
@@ -559,8 +560,14 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
                         return
                     }
 
+                    let tsFormatter = ISO8601DateFormatter()
+                    tsFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let tsFallback = ISO8601DateFormatter()
+
                     for try await line in bytes.lines {
-                        continuation.yield(line)
+                        // K8s timestamps=true format: "2024-01-15T10:30:45.123456789Z log message here"
+                        let (ts, msg) = Self.parseTimestampedLine(line, formatter: tsFormatter, fallback: tsFallback)
+                        continuation.yield((ts, msg))
                     }
                     continuation.finish()
                 } catch {
@@ -568,6 +575,31 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Parse a timestamped log line from K8s (RFC3339Nano prefix separated by space)
+    private static func parseTimestampedLine(_ line: String, formatter: ISO8601DateFormatter, fallback: ISO8601DateFormatter) -> (Date, String) {
+        // Format: "2024-01-15T10:30:45.123456789Z actual log message"
+        guard let spaceIdx = line.firstIndex(of: " ") else {
+            return (Date(), line)
+        }
+        let tsStr = String(line[line.startIndex..<spaceIdx])
+        let msg = String(line[line.index(after: spaceIdx)...])
+
+        // K8s uses nanosecond precision — ISO8601DateFormatter handles up to microseconds
+        // Truncate nanoseconds to fit: "2024-01-15T10:30:45.123456789Z" → "2024-01-15T10:30:45.123456Z"
+        var cleanTs = tsStr
+        if let dotIdx = cleanTs.firstIndex(of: "."), let zIdx = cleanTs.firstIndex(of: "Z") {
+            let fracPart = cleanTs[cleanTs.index(after: dotIdx)..<zIdx]
+            if fracPart.count > 6 {
+                let truncated = String(fracPart.prefix(6))
+                cleanTs = String(cleanTs[cleanTs.startIndex...dotIdx]) + truncated + "Z"
+            }
+        }
+
+        if let date = formatter.date(from: cleanTs) { return (date, msg) }
+        if let date = fallback.date(from: cleanTs) { return (date, msg) }
+        return (Date(), line)
     }
 
     // MARK: - Namespaces

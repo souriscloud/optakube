@@ -46,6 +46,17 @@ struct ResourceDetailView: View {
                 }
                 Spacer()
 
+                // Open logs button (pods only)
+                if resource.resourceType == .pods {
+                    Button {
+                        NotificationCenter.default.post(name: .openFullLogs, object: resource)
+                    } label: {
+                        Label("Logs", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
                 // Quick actions
                 QuickActionsMenu(resource: resource)
             }
@@ -83,12 +94,6 @@ struct ResourceDetailView: View {
                 EventsListView(resource: resource)
             } else if selectedTabId == "yaml" {
                 yamlTabContent
-            } else if selectedTabId == "logs" {
-                if resource.resourceType == .pods {
-                    LogStreamView(resource: resource)
-                } else {
-                    ContentUnavailableView("Logs not available", systemImage: "doc.text", description: Text("Logs are only available for Pods"))
-                }
             } else if selectedTabId.hasPrefix("container:") {
                 let containerName = String(selectedTabId.dropFirst("container:".count))
                 if let pod = findPod() {
@@ -116,9 +121,6 @@ struct ResourceDetailView: View {
         }
         tabs.append(TabItem("events", label: "Events"))
         tabs.append(TabItem("yaml", label: "YAML"))
-        if resource.resourceType == .pods {
-            tabs.append(TabItem("logs", label: "Logs"))
-        }
         return tabs
     }
 

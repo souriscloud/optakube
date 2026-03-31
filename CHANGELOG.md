@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-31
+
+### Added
+- Full-window log viewer — right-click pod → "Open Logs" or click "Logs" button in detail header
+- Open logs in separate standalone window (not a cluster window)
+- JSON syntax highlighting in log lines (keys, values, numbers, booleans color-coded)
+- logfmt syntax highlighting (key=value pairs color-coded)
+- ANSI escape code stripping for clean log display
+- Line wrap toggle in log viewer
+- Search with highlight + forward/back navigation (Cmd+G / Shift+Cmd+G)
+- Filter or Highlight search mode toggle
+- Press Space to insert visual mark separator while watching logs
+- Pod/container selector with individual checkboxes (enable/disable per container)
+- Init container logs support (shown in container picker, disabled by default)
+- Timestamp display options: Local / UTC / Off
+- Log font size: Small / Default / Large
+- Auto-reconnect with retry backoff on log stream disconnect
+- Live streaming indicator in log status bar
+- Server-side timestamps for proper chronological ordering of multi-pod logs
+- Cluster color and rename customization (persisted, reflected instantly everywhere)
+- Customize button in welcome screen per cluster
+- App version and last refresh time shown in status bar
+- "Open Logs" in right-click context menu for pods
+
+### Changed
+- Log viewer completely rewritten with professional UX
+- Removed Logs tab from detail sidebar (replaced by dedicated log views)
+- Scroll behavior: stays at user's position when reading, auto-scrolls only when at bottom
+- Pod picker popover enlarged (shows 7+ pods without scrolling)
+- Adding a pod to log stream now immediately starts streaming
+- App icon properly sized with Apple HIG 10% margins (matches other Dock icons)
+- Sparkle only initializes when running in proper app bundle (no more crash in debug)
+- Watch API uses exponential backoff (3s → 9s → 27s) instead of constant 3s retry
+
+### Fixed
+- Multi-pod historical logs now sorted chronologically (using K8s server-side timestamps)
+- Tables with few rows no longer center — pinned to top
+- Spotlight search scroll follows keyboard selection
+- Watch stream no longer floods logs with TLS errors on self-signed clusters
+
 ## [0.1.0] - 2026-03-25
 
 ### Added

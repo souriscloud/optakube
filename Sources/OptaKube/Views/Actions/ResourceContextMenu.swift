@@ -7,6 +7,16 @@ struct ResourceContextMenu: View {
     let resource: ResourceIdentifier
 
     var body: some View {
+        // Pod-specific: open full-window logs
+        if resource.resourceType == .pods {
+            Button {
+                NotificationCenter.default.post(name: .openFullLogs, object: resource)
+            } label: {
+                Label("Open Logs", systemImage: "doc.text")
+            }
+            Divider()
+        }
+
         // Workload actions
         if [.deployments, .statefulSets, .daemonSets].contains(resource.resourceType) {
             Button {

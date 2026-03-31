@@ -161,27 +161,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Fallback: generate a high-quality icon programmatically
+        // Fallback: generate icon with proper Apple HIG margins (~10% inset)
         let size: CGFloat = 512
         let icon = NSImage(size: NSSize(width: size, height: size))
         icon.lockFocus()
         guard let ctx = NSGraphicsContext.current?.cgContext else { icon.unlockFocus(); return }
 
-        let rect = CGRect(x: 0, y: 0, width: size, height: size)
-        let r = size * 0.22
-        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil))
+        let margin = size * 0.1
+        let iconSize = size - margin * 2
+        let iconRect = CGRect(x: margin, y: margin, width: iconSize, height: iconSize)
+        let r = iconSize * 0.22
+        ctx.addPath(CGPath(roundedRect: iconRect, cornerWidth: r, cornerHeight: r, transform: nil))
         ctx.clip()
 
-        // Blue gradient
         let colors = [CGColor(red: 0.25, green: 0.55, blue: 1.0, alpha: 1.0),
                       CGColor(red: 0.12, green: 0.32, blue: 0.85, alpha: 1.0)] as CFArray
         let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
-        ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: size), end: CGPoint(x: size, y: 0), options: [])
+        ctx.drawLinearGradient(grad, start: CGPoint(x: margin, y: margin + iconSize), end: CGPoint(x: margin + iconSize, y: margin), options: [])
 
-        // Cube wireframe
-        let cx = size / 2, cy = size / 2, sz = size * 0.28
+        let cx = size / 2, cy = size / 2, sz = iconSize * 0.28
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
-        ctx.setLineWidth(size * 0.02)
+        ctx.setLineWidth(iconSize * 0.02)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
 
@@ -193,7 +193,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let botLeft = CGPoint(x: cx - sz * 0.7, y: cy + sz * 0.45)
         let botRight = CGPoint(x: cx + sz * 0.7, y: cy + sz * 0.45)
 
-        // Faces
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.15))
         ctx.move(to: top); ctx.addLine(to: right); ctx.addLine(to: mid); ctx.addLine(to: left); ctx.closePath(); ctx.fillPath()
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.08))
@@ -201,7 +200,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.04))
         ctx.move(to: right); ctx.addLine(to: mid); ctx.addLine(to: bot); ctx.addLine(to: botRight); ctx.closePath(); ctx.fillPath()
 
-        // Edges
         for (a, b) in [(top,right),(top,left),(left,botLeft),(right,botRight),(mid,left),(mid,right),(mid,bot),(botLeft,bot),(botRight,bot)] {
             ctx.move(to: a); ctx.addLine(to: b); ctx.strokePath()
         }

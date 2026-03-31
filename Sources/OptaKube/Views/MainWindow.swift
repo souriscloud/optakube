@@ -6,6 +6,8 @@ struct MainWindow: View {
     @State private var showDetail: Bool = false
     @State private var showTerminal: Bool = false
     @State private var showSpotlight: Bool = false
+    @State private var showFullLogs: Bool = false
+    @State private var fullLogsResource: ResourceIdentifier?
     @State private var dismissedError: String?
 
     private struct ConnectionError: Equatable {
@@ -63,11 +65,49 @@ struct MainWindow: View {
                 SidebarView()
                     .navigationSplitViewColumnWidth(min: 160, ideal: 200, max: 280)
             } detail: {
-                if viewModel.showClusterOverview {
+                if showFullLogs, let logRes = fullLogsResource {
+                    // Full-window log view
+                    VStack(spacing: 0) {
+                        HStack {
+                            Button {
+                                showFullLogs = false
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left")
+                                    Text("Back to \(viewModel.selectedResourceType.displayName)")
+                                }
+                                .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            Text(logRes.name)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+
+                            Spacer()
+
+                            Button {
+                                showFullLogs = false
+                            } label: {
+                                Image(systemName: "xmark.circle")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.bar)
+
+                        LogStreamView(resource: logRes, isFullWindow: true)
+                    }
+                } else if viewModel.showClusterOverview {
                     ClusterOverview()
                 } else {
                     if showDetail, let resource = selectedResource {
-                        // Resizable split: resource list + detail
                         HSplitView {
                             ResourceListView(selectedResource: $selectedResource)
                                 .frame(minWidth: 300)
@@ -172,6 +212,12 @@ struct MainWindow: View {
             if let rid = notif.object as? ResourceIdentifier {
                 selectedResource = rid
                 if !showDetail { withAnimation { showDetail = true } }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openFullLogs)) { notif in
+            if let rid = notif.object as? ResourceIdentifier {
+                fullLogsResource = rid
+                showFullLogs = true
             }
         }
     }
