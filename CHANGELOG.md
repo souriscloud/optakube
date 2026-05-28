@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-05-29
+
+### Internal
+- **Split `AppViewModel` into concern-focused files.** The 610-line god-object is now four files — core state + connection lifecycle (`AppViewModel.swift`), list loading + CRDs + metrics (`AppViewModel+Resources.swift`), the watch engine + auto-refresh (`AppViewModel+Watch.swift`), and state persistence (`AppViewModel+Persistence.swift`) — kept as a single `@Observable` type via extensions. No view-facing API change, identical runtime behavior; just navigability
+
 ## [0.4.3] - 2026-05-29
 
 ### Changed
