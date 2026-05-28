@@ -448,37 +448,82 @@ final class AppViewModel: Identifiable {
         kp: ReferenceWritableKeyPath<AppViewModel, [String: [T]]>
     ) async throws {
         let stream = client.watch(type, resourceType: rt, namespace: ns, resourceVersion: rv)
+
+        // Coalesce bursts. During a startup storm (e.g. hundreds of pods flipping
+        // Pending→Running within a couple of seconds) the raw watch emits one event
+        // per object; applying each individually means one `@Observable` mutation —
+        // and one SwiftUI re-render of the whole table — per event. Instead we buffer
+        // events in a small actor and apply them in a single batch on a trailing-edge
+        // debounce: every event resets a ~100ms window, and when it fires we drain the
+        // whole batch into one UI update. Steady-state single events still apply within
+        // 100ms; a final drain after the stream ends guarantees nothing is left stale.
+        let coalescer = WatchCoalescer<T>()
+        var flushTask: Task<Void, Never>?
+
         for try await event in stream {
-            await MainActor.run {
-                var items = self[keyPath: kp][cid] ?? []
-                switch event.type {
-                case .ADDED:
-                    if !items.contains(where: { $0.id == event.object.id }) {
-                        items.append(event.object)
+            let shouldSchedule = await coalescer.add(event)
+            if shouldSchedule {
+                flushTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(100))
+                    let batch = await coalescer.drain()
+                    if !batch.isEmpty {
+                        await self?.applyWatchBatch(batch, cid: cid, kp: kp)
                     }
-                case .MODIFIED:
-                    if let idx = items.firstIndex(where: { $0.id == event.object.id }) {
-                        items[idx] = event.object
-                    } else {
-                        items.append(event.object)
-                    }
-                case .DELETED:
-                    items.removeAll { $0.id == event.object.id }
-                case .BOOKMARK:
-                    // Update resourceVersion only
-                    if let rv = event.object.metadata.resourceVersion {
-                        self.resourceVersions[cid] = rv
-                    }
-                case .ERROR:
-                    break
-                }
-                self[keyPath: kp][cid] = items
-                // Update resourceVersion from the event object
-                if let rv = event.object.metadata.resourceVersion {
-                    self.resourceVersions[cid] = rv
                 }
             }
         }
+
+        // Stream ended — let the last scheduled flush finish, then drain any stragglers.
+        await flushTask?.value
+        let tail = await coalescer.drain()
+        if !tail.isEmpty {
+            await applyWatchBatch(tail, cid: cid, kp: kp)
+        }
+    }
+
+    /// Apply a coalesced batch of watch events to the resource array for `cid` in a
+    /// single `@Observable` mutation. Builds an id→index map so the apply is O(batch +
+    /// items) rather than O(batch × items) — and, more importantly, touches the
+    /// published array exactly once per batch instead of once per event.
+    @MainActor
+    private func applyWatchBatch<T: K8sResource>(
+        _ batch: [WatchEvent<T>],
+        cid: String,
+        kp: ReferenceWritableKeyPath<AppViewModel, [String: [T]]>
+    ) {
+        guard !batch.isEmpty else { return }
+        var items = self[keyPath: kp][cid] ?? []
+        var indexByID: [String: Int] = [:]
+        indexByID.reserveCapacity(items.count)
+        for (i, item) in items.enumerated() { indexByID[item.id] = i }
+
+        var latestRV: String? = resourceVersions[cid]
+        for event in batch {
+            let obj = event.object
+            switch event.type {
+            case .ADDED, .MODIFIED:
+                if let idx = indexByID[obj.id] {
+                    items[idx] = obj
+                } else {
+                    indexByID[obj.id] = items.count
+                    items.append(obj)
+                }
+            case .DELETED:
+                if let idx = indexByID[obj.id] {
+                    items.remove(at: idx)
+                    indexByID.removeValue(forKey: obj.id)
+                    // Reindex the shifted tail. Deletes are infrequent relative to
+                    // add/modify, so the occasional O(tail) cost is fine.
+                    for j in idx..<items.count { indexByID[items[j].id] = j }
+                }
+            case .BOOKMARK, .ERROR:
+                break
+            }
+            if let rv = obj.metadata.resourceVersion { latestRV = rv }
+        }
+
+        self[keyPath: kp][cid] = items
+        if let rv = latestRV { resourceVersions[cid] = rv }
     }
 
     func stopWatch() {

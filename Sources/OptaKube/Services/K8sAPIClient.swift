@@ -37,34 +37,39 @@ struct ListResult<T> {
     let resourceVersion: String?
 }
 
-final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
-    let connection: ClusterConnection
-    let authProvider: any AuthProvider
-    private var clientIdentity: SecIdentity?
-    private var clientCertificate: SecCertificate?
-    // Captured when the TLS server-trust delegate rejects so request() can surface the real reason
-    // instead of the generic "A TLS error caused the secure connection to fail" wrapper.
-    private let tlsErrorLock = NSLock()
-    private var _lastTLSError: String?
-    private var lastTLSError: String? {
-        get { tlsErrorLock.lock(); defer { tlsErrorLock.unlock() }; return _lastTLSError }
-        set { tlsErrorLock.lock(); _lastTLSError = newValue; tlsErrorLock.unlock() }
+/// Tiny buffer that lets a watch consumer accumulate events while a debounce timer
+/// runs concurrently. An actor (rather than a lock) because the producer loop and the
+/// trailing-flush task both touch `pending` from different tasks. `add` reports whether
+/// the buffer was empty so the caller knows to schedule a fresh flush window.
+actor WatchCoalescer<T: K8sResource> {
+    private var pending: [WatchEvent<T>] = []
+
+    /// Append an event; returns true if the buffer was empty beforehand (i.e. the
+    /// caller should start a new debounce window).
+    func add(_ event: WatchEvent<T>) -> Bool {
+        let wasEmpty = pending.isEmpty
+        pending.append(event)
+        return wasEmpty
     }
 
-    private lazy var session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 300
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
+    func drain() -> [WatchEvent<T>] {
+        let batch = pending
+        pending.removeAll(keepingCapacity: true)
+        return batch
+    }
+}
 
+final class K8sAPIClient: Sendable {
+    let connection: ClusterConnection
+    let authProvider: any AuthProvider
+
+    // All TLS trust + client-identity state lives in the delegate, which is the only
+    // piece that needs `@unchecked Sendable` (URLSession invokes it off its own queue).
+    // Keeping it out of K8sAPIClient lets the client itself be a clean `Sendable` type.
+    private let trustDelegate: TLSTrustDelegate
+    private let session: URLSession
     // Watch session with no timeout (watches are long-lived)
-    private lazy var watchSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 0
-        config.timeoutIntervalForResource = 0
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
+    private let watchSession: URLSession
 
     private static let jsonDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -93,22 +98,36 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         case .none:
             self.authProvider = NoAuthProvider()
         }
-        super.init()
 
-        // Pre-load client identity for TLS
+        // Pre-load client identity for TLS (client-certificate auth only).
+        var identity: SecIdentity?
+        var certificate: SecCertificate?
         if case .clientCertificate(let certData, let keyData) = connection.authInfo {
-            loadClientIdentity(certData: certData, keyData: keyData)
+            (identity, certificate) = Self.loadClientIdentity(certData: certData, keyData: keyData)
         }
+
+        let delegate = TLSTrustDelegate(connection: connection, clientIdentity: identity, clientCertificate: certificate)
+        self.trustDelegate = delegate
+
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        self.session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+
+        let watchConfig = URLSessionConfiguration.default
+        watchConfig.timeoutIntervalForRequest = 0
+        watchConfig.timeoutIntervalForResource = 0
+        self.watchSession = URLSession(configuration: watchConfig, delegate: delegate, delegateQueue: nil)
     }
 
     // MARK: - Client Certificate Loading
 
-    private func loadClientIdentity(certData: Data, keyData: Data) {
+    private static func loadClientIdentity(certData: Data, keyData: Data) -> (SecIdentity?, SecCertificate?) {
         // kubeconfig base64-decoded data is PEM-encoded.
         // Use openssl to create a PKCS12 bundle, then import it via SecPKCS12Import.
         // This handles RSA, EC, and any other key type that openssl supports.
         guard let certPEM = String(data: certData, encoding: .utf8),
-              let keyPEM = String(data: keyData, encoding: .utf8) else { return }
+              let keyPEM = String(data: keyData, encoding: .utf8) else { return (nil, nil) }
 
         let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
@@ -122,7 +141,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         do {
             try certPEM.write(to: certFile, atomically: true, encoding: .utf8)
             try keyPEM.write(to: keyFile, atomically: true, encoding: .utf8)
-        } catch { return }
+        } catch { return (nil, nil) }
 
         // Use openssl to create PKCS12
         let process = Process()
@@ -140,10 +159,10 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         do {
             try process.run()
             process.waitUntilExit()
-        } catch { return }
+        } catch { return (nil, nil) }
 
         guard process.terminationStatus == 0,
-              let p12Data = try? Data(contentsOf: p12File) else { return }
+              let p12Data = try? Data(contentsOf: p12File) else { return (nil, nil) }
 
         // Import PKCS12 into Security framework
         var items: CFArray?
@@ -153,32 +172,14 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         guard status == errSecSuccess,
               let itemArray = items as? [[String: Any]],
               let firstItem = itemArray.first,
-              let identity = firstItem[kSecImportItemIdentity as String] else { return }
+              let identityItem = firstItem[kSecImportItemIdentity as String] else { return (nil, nil) }
 
-        self.clientIdentity = (identity as! SecIdentity)
+        let identity = identityItem as! SecIdentity
 
         // Also extract the certificate for the TLS delegate
         var certRef: SecCertificate?
-        SecIdentityCopyCertificate(self.clientIdentity!, &certRef)
-        self.clientCertificate = certRef
-    }
-
-    private func pemToDER(_ data: Data, type: String) -> Data? {
-        guard let pem = String(data: data, encoding: .utf8) else { return nil }
-        let header = "-----BEGIN \(type)-----"
-        let footer = "-----END \(type)-----"
-
-        guard let headerRange = pem.range(of: header),
-              let footerRange = pem.range(of: footer) else {
-            return nil
-        }
-
-        let base64 = pem[headerRange.upperBound..<footerRange.lowerBound]
-            .replacingOccurrences(of: "\n", with: "")
-            .replacingOccurrences(of: "\r", with: "")
-            .trimmingCharacters(in: .whitespaces)
-
-        return Data(base64Encoded: base64)
+        SecIdentityCopyCertificate(identity, &certRef)
+        return (identity, certRef)
     }
 
     // MARK: - CRD Discovery
@@ -686,7 +687,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// rejected anyway, e.g. on ATS grounds), at least include the URLError code so the
     /// user sees something more diagnostic than the generic "A TLS error caused…".
     private func enrichTransportError(_ error: Error) -> Error {
-        if let tls = lastTLSError {
+        if let tls = trustDelegate.lastTLSError {
             return K8sError.connectionFailed("TLS: \(tls)")
         }
         if let urlError = error as? URLError {
@@ -695,8 +696,58 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         return error
     }
 
-    // MARK: - URLSessionDelegate (TLS)
-    //
+}
+
+// MARK: - TLS Trust Delegate
+
+/// URLSession delegate that owns all TLS trust + client-identity state for one
+/// connection. Split out of `K8sAPIClient` so the client can be a clean `Sendable`
+/// type: this is the only piece that genuinely needs `@unchecked Sendable`, because
+/// URLSession invokes the challenge handler on its own delegate queue while
+/// `lastTLSError` is read back from `request()`'s async context. The one cross-queue
+/// mutable field is guarded by `lock`; identity/certificate are set once at init and
+/// never mutated afterward.
+final class TLSTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    private let connection: ClusterConnection
+    private let clientIdentity: SecIdentity?
+    private let clientCertificate: SecCertificate?
+
+    private let lock = NSLock()
+    private var _lastTLSError: String?
+    // Captured when server-trust evaluation rejects, so request() can surface the real
+    // reason instead of the generic "A TLS error caused the secure connection to fail".
+    var lastTLSError: String? {
+        lock.lock(); defer { lock.unlock() }; return _lastTLSError
+    }
+    private func setLastTLSError(_ value: String?) {
+        lock.lock(); _lastTLSError = value; lock.unlock()
+    }
+
+    init(connection: ClusterConnection, clientIdentity: SecIdentity?, clientCertificate: SecCertificate?) {
+        self.connection = connection
+        self.clientIdentity = clientIdentity
+        self.clientCertificate = clientCertificate
+        super.init()
+    }
+
+    private func pemToDER(_ data: Data, type: String) -> Data? {
+        guard let pem = String(data: data, encoding: .utf8) else { return nil }
+        let header = "-----BEGIN \(type)-----"
+        let footer = "-----END \(type)-----"
+
+        guard let headerRange = pem.range(of: header),
+              let footerRange = pem.range(of: footer) else {
+            return nil
+        }
+
+        let base64 = pem[headerRange.upperBound..<footerRange.lowerBound]
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        return Data(base64Encoded: base64)
+    }
+
     // The completion-handler signature is the only one URLSession reliably finds via
     // `responds(to:)` in release builds. Swift's `async -> (...)` variant relies on
     // ObjC bridging that whole-module optimisation can strip — when that happens,
@@ -713,7 +764,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
 
         if protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
             guard let serverTrust = protectionSpace.serverTrust else {
-                lastTLSError = "no serverTrust in challenge"
+                setLastTLSError("no serverTrust in challenge")
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }
@@ -728,7 +779,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
                 // Parse out the DER bytes and use it as the only trust anchor (mirroring kubectl).
                 guard let caDER = pemToDER(caData, type: "CERTIFICATE"),
                       let caCert = SecCertificateCreateWithData(nil, caDER as CFData) else {
-                    lastTLSError = "failed to parse certificate-authority-data from kubeconfig"
+                    setLastTLSError("failed to parse certificate-authority-data from kubeconfig")
                     completionHandler(.cancelAuthenticationChallenge, nil)
                     return
                 }
@@ -739,14 +790,14 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
                 // Evaluate explicitly so we can capture and surface the real reason on failure.
                 var trustError: CFError?
                 if SecTrustEvaluateWithError(serverTrust, &trustError) {
-                    lastTLSError = nil
+                    setLastTLSError(nil)
                     completionHandler(.useCredential, URLCredential(trust: serverTrust))
                     return
                 }
 
                 let reason = trustError.map { CFErrorCopyDescription($0) as String } ?? "unknown"
                 let host = protectionSpace.host
-                lastTLSError = "server trust for \(host): \(reason)"
+                setLastTLSError("server trust for \(host): \(reason)")
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }

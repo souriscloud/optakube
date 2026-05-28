@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-29
+
+### Changed
+- **Smoother live updates on large namespaces.** The watch consumer now coalesces bursts of events on a ~100ms trailing-edge window and applies them as a single batch. Previously every watch event (ADDED/MODIFIED/DELETED) triggered its own `@Observable` mutation — so a startup storm of hundreds of pods flipping Pending→Running re-rendered the whole table once per pod. Now it's one re-render per ~100ms window. Steady-state single updates still appear within 100ms; a final drain when the stream ends guarantees nothing is left stale
+- Batch apply builds an id→index map, so applying a watch batch is O(batch + items) instead of O(batch × items) — the per-event `contains` / `firstIndex` linear scans are gone
+
+### Internal
+- **`K8sAPIClient` is now a clean `Sendable` type** instead of `@unchecked Sendable` with a manual `NSLock`. All TLS trust + client-identity state moved into a small dedicated `TLSTrustDelegate` (the one piece that genuinely needs `@unchecked Sendable`, because URLSession invokes it off its own delegate queue). The client itself now has only immutable `let` state. The `@objc` completion-handler workaround that fixed the 0.3.2 release-build TLS regression is preserved verbatim in the delegate
+
 ## [0.4.1] - 2026-05-28
 
 ### Added
