@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-05-29
+
+### Changed
+- **Events tab is now live via a watch instead of a 5s poll.** On open it lists the resource's events once (for the initial render) and captures the list `resourceVersion`, then holds an open watch from that point — applying ADDED/MODIFIED/DELETED in place as they arrive. The server periodically closes long-lived watches and may expire the resourceVersion (410 Gone); both just loop back to a fresh list + re-watch, with exponential backoff on hard failures. Lower request volume (no fixed relist every 5s when nothing changes) and events appear the moment Kubernetes records them
+- Factored the watch streaming into a shared `streamWatch(watchURL:)` so the events watch and the resource watch share one code path
+
 ## [0.4.2] - 2026-05-29
 
 ### Changed

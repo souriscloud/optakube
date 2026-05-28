@@ -17,8 +17,7 @@ struct EventsListView: View {
     let resource: ResourceIdentifier
     @State private var events: [K8sEvent] = []
     @State private var isLoading = true
-    @State private var errorMsg: String?
-    @State private var refreshTask: Task<Void, Never>?
+    @State private var watchTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -84,66 +83,96 @@ struct EventsListView: View {
                 }
             }
         }
-        .onAppear { startPolling() }
-        .onDisappear { refreshTask?.cancel(); refreshTask = nil }
-        .onChange(of: resource) { _, _ in startPolling() }
+        .onAppear { startWatching() }
+        .onDisappear { watchTask?.cancel(); watchTask = nil }
+        .onChange(of: resource) { _, _ in startWatching() }
     }
 
-    private func startPolling() {
-        refreshTask?.cancel()
-        loadEvents()
-        // Lightweight 5s poll while the tab is visible. K8s doesn't push events to a
-        // resource-scoped subscriber, so a periodic relist is the realistic option.
-        refreshTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                if Task.isCancelled { break }
-                await refreshOnce()
-            }
-        }
-    }
-
-    private func refreshOnce() async {
-        guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        let kind = resource.resourceType.displayName.dropLast(resource.resourceType.displayName.hasSuffix("s") ? 1 : 0)
-        if let result = try? await client.listEventsForResource(
-            kind: String(kind),
-            name: resource.name,
-            namespace: resource.namespace
-        ) {
-            let sorted = result.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
-            let warnings = sorted.filter { $0.type == "Warning" }.count
-            await MainActor.run {
-                events = sorted
-                EventBadgeStore.shared.warningCounts[EventBadgeStore.key(resource)] = warnings
-            }
-        }
-    }
-
-    private func loadEvents() {
-        guard let client = viewModel.activeClients[resource.clusterId] else { return }
+    /// List the resource's events once for the initial render, then hold a live watch
+    /// from that list's resourceVersion — applying ADDED/MODIFIED/DELETED in place. The
+    /// server periodically closes long-lived watches and may expire the resourceVersion
+    /// (410 Gone); both cases just loop back to a fresh list + re-watch, with exponential
+    /// backoff on hard failures. Replaces the old 5s relist poll.
+    private func startWatching() {
+        watchTask?.cancel()
+        let resource = self.resource
         isLoading = true
-        Task {
-            do {
-                let kind = resource.resourceType.displayName.dropLast(resource.resourceType.displayName.hasSuffix("s") ? 1 : 0)
-                let result = try await client.listEventsForResource(
-                    kind: String(kind),
-                    name: resource.name,
-                    namespace: resource.namespace
-                )
-                let sorted = result.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
-                let warnings = sorted.filter { $0.type == "Warning" }.count
-                await MainActor.run {
-                    events = sorted
-                    isLoading = false
-                    EventBadgeStore.shared.warningCounts[EventBadgeStore.key(resource)] = warnings
-                }
-            } catch {
-                await MainActor.run {
-                    errorMsg = error.localizedDescription
-                    isLoading = false
+        watchTask = Task {
+            guard let client = viewModel.activeClients[resource.clusterId] else {
+                await MainActor.run { isLoading = false }
+                return
+            }
+            let displayName = resource.resourceType.displayName
+            let kind = String(displayName.dropLast(displayName.hasSuffix("s") ? 1 : 0))
+            var failCount = 0
+
+            while !Task.isCancelled && failCount < 5 {
+                do {
+                    let result = try await client.listEventsForResourceWithVersion(
+                        kind: kind, name: resource.name, namespace: resource.namespace
+                    )
+                    if Task.isCancelled { return }
+                    await MainActor.run {
+                        applyFullList(result.items)
+                        isLoading = false
+                    }
+                    failCount = 0
+
+                    guard let rv = result.resourceVersion else {
+                        // No version to watch from — wait a beat and re-list.
+                        try await Task.sleep(for: .seconds(10))
+                        continue
+                    }
+
+                    let stream = client.watchEventsForResource(
+                        kind: kind, name: resource.name, namespace: resource.namespace, resourceVersion: rv
+                    )
+                    for try await event in stream {
+                        if Task.isCancelled { return }
+                        await MainActor.run { apply(event) }
+                    }
+                    // Stream closed cleanly (server-side watch timeout) — re-list and re-watch.
+                } catch is CancellationError {
+                    return
+                } catch K8sError.watchGone {
+                    // resourceVersion expired — loop back to a fresh list.
+                    continue
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    failCount += 1
+                    let delay = min(3.0 * pow(3.0, Double(failCount - 1)), 60.0)
+                    try? await Task.sleep(for: .seconds(delay))
                 }
             }
         }
+    }
+
+    @MainActor
+    private func applyFullList(_ items: [K8sEvent]) {
+        events = items.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
+        updateBadge()
+    }
+
+    @MainActor
+    private func apply(_ event: WatchEvent<K8sEvent>) {
+        switch event.type {
+        case .ADDED, .MODIFIED:
+            if let idx = events.firstIndex(where: { $0.id == event.object.id }) {
+                events[idx] = event.object
+            } else {
+                events.append(event.object)
+            }
+        case .DELETED:
+            events.removeAll { $0.id == event.object.id }
+        case .BOOKMARK, .ERROR:
+            return
+        }
+        events.sort { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
+        updateBadge()
+    }
+
+    @MainActor
+    private func updateBadge() {
+        EventBadgeStore.shared.warningCounts[EventBadgeStore.key(resource)] = events.filter { $0.type == "Warning" }.count
     }
 }

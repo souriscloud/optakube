@@ -260,9 +260,39 @@ final class K8sAPIClient: Sendable {
         return list.items
     }
 
-    func listEventsForResource(kind: String, name: String, namespace: String?) async throws -> [K8sEvent] {
-        let selector = "involvedObject.kind=\(kind),involvedObject.name=\(name)"
-        return try await listEvents(namespace: namespace, fieldSelector: selector)
+    /// Field selector that scopes events to a single involved object.
+    private static func eventFieldSelector(kind: String, name: String) -> String {
+        "involvedObject.kind=\(kind),involvedObject.name=\(name)"
+    }
+
+    /// List a resource's events and return the list resourceVersion, so the caller can
+    /// open a watch from exactly that point (no gap, no overlap).
+    func listEventsForResourceWithVersion(kind: String, name: String, namespace: String?) async throws -> ListResult<K8sEvent> {
+        var urlString = connection.server + "/api/v1"
+        if let ns = namespace { urlString += "/namespaces/\(ns)" }
+        urlString += "/events"
+        let selector = Self.eventFieldSelector(kind: kind, name: name)
+        if let encoded = selector.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            urlString += "?fieldSelector=\(encoded)"
+        }
+        guard let url = URL(string: urlString) else { throw K8sError.invalidURL }
+        let data = try await request(url: url)
+        let list = try Self.jsonDecoder.decode(K8sListResponse<K8sEvent>.self, from: data)
+        return ListResult(items: list.items, resourceVersion: list.metadata?.resourceVersion)
+    }
+
+    /// Watch a single resource's events from `resourceVersion`. Mirrors the resource
+    /// watch but on the events endpoint with an `involvedObject` field selector.
+    func watchEventsForResource(kind: String, name: String, namespace: String?, resourceVersion: String) -> AsyncThrowingStream<WatchEvent<K8sEvent>, Error> {
+        var urlString = connection.server + "/api/v1"
+        if let ns = namespace { urlString += "/namespaces/\(ns)" }
+        urlString += "/events"
+        let selector = Self.eventFieldSelector(kind: kind, name: name)
+        guard let encodedSelector = selector.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let watchURL = URL(string: urlString + "?fieldSelector=\(encodedSelector)&watch=true&resourceVersion=\(resourceVersion)&allowWatchBookmarks=true") else {
+            return AsyncThrowingStream { $0.finish(throwing: K8sError.invalidURL) }
+        }
+        return streamWatch(watchURL: watchURL, as: K8sEvent.self)
     }
 
     // MARK: - Resource Operations
@@ -284,19 +314,23 @@ final class K8sAPIClient: Sendable {
     // MARK: - Watch API
 
     func watch<T: K8sResource>(_ type: T.Type, resourceType: ResourceType, namespace: String? = nil, resourceVersion: String) -> AsyncThrowingStream<WatchEvent<T>, Error> {
+        guard let url = resourceType.listURL(server: connection.server, namespace: namespace) else {
+            return AsyncThrowingStream { $0.finish(throwing: K8sError.invalidURL) }
+        }
+        let separator = url.absoluteString.contains("?") ? "&" : "?"
+        guard let watchURL = URL(string: url.absoluteString + "\(separator)watch=true&resourceVersion=\(resourceVersion)&allowWatchBookmarks=true") else {
+            return AsyncThrowingStream { $0.finish(throwing: K8sError.invalidURL) }
+        }
+        return streamWatch(watchURL: watchURL, as: T.self)
+    }
+
+    /// Open a watch connection at `watchURL` and decode each streamed line as a
+    /// `WatchEvent<T>`. Shared by `watch(_:resourceType:…)` and the events watch.
+    /// On a 410 the stream finishes with `K8sError.watchGone` so callers can re-list.
+    private func streamWatch<T: K8sResource>(watchURL: URL, as type: T.Type) -> AsyncThrowingStream<WatchEvent<T>, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    guard let url = resourceType.listURL(server: connection.server, namespace: namespace) else {
-                        continuation.finish(throwing: K8sError.invalidURL)
-                        return
-                    }
-                    let separator = url.absoluteString.contains("?") ? "&" : "?"
-                    guard let watchURL = URL(string: url.absoluteString + "\(separator)watch=true&resourceVersion=\(resourceVersion)&allowWatchBookmarks=true") else {
-                        continuation.finish(throwing: K8sError.invalidURL)
-                        return
-                    }
-
                     var req = URLRequest(url: watchURL)
                     req.setValue("application/json", forHTTPHeaderField: "Accept")
                     if let token = try await authProvider.token() {
