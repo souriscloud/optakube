@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-05-29
+
+### Fixed
+- **Crash on connect when running unbundled (`swift run` / raw SPM binary).** `UNUserNotificationCenter.current()` hard-asserts (`bundleProxyForCurrentProcess is nil`) without an app bundle; it fired the moment a pod list loaded successfully (`observe(pods:)` → `ensureAuthorization`), aborting the app. The shipped, notarized `.app` was never affected (it has a bundle) — this only bit the dev workflow. Notification-center calls are now gated behind a bundle check, the same way Sparkle already is
+
 ## [0.4.4] - 2026-05-29
 
 ### Internal
