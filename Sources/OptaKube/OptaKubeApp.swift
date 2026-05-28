@@ -1,18 +1,13 @@
 import SwiftUI
 import AppKit
-import Sparkle
 
 @main
 struct OptaKubeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
-    // Only init Sparkle when running in a proper .app bundle (has CFBundleIdentifier)
-    private let updaterController: SPUStandardUpdaterController? = {
-        if Bundle.main.bundleIdentifier != nil {
-            return SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
-        }
-        return nil
-    }()
+    // Sparkle ownership lives in UpdateController.shared — same singleton powers
+    // both the app menu's "Check for Updates…" and the menu-bar-icon entry.
+    private let updater = UpdateController.shared
 
     var body: some Scene {
         // Welcome / hub window
@@ -35,12 +30,11 @@ struct OptaKubeApp: App {
                 Button("About OptaKube") {
                     openWindow(id: "about")
                 }
-                if let updater = updaterController {
-                    Divider()
-                    Button("Check for Updates...") {
-                        updater.updater.checkForUpdates()
-                    }
+                Divider()
+                Button("Check for Updates…") {
+                    updater.checkForUpdates(nil)
                 }
+                .disabled(!updater.isAvailable)
             }
 
             // Resource type shortcuts
@@ -66,10 +60,13 @@ struct OptaKubeApp: App {
             }
         }
 
-        // Menu bar icon — uses cube symbol (matches app icon), supports macOS tinting
+        // Menu bar icon — uses cube symbol (matches app icon), supports macOS tinting.
+        // `.menu` style renders the contents as a native NSMenu so it looks like every
+        // other macOS menu bar app instead of a custom SwiftUI popover.
         MenuBarExtra("OptaKube", systemImage: "square.stack.3d.up") {
             PortForwardMenuBarView()
         }
+        .menuBarExtraStyle(.menu)
 
         Settings {
             SettingsView()

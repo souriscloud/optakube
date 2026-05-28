@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-28
+
+### Changed
+- Menu-bar-icon dropdown is now a native macOS menu (was a custom popover) and unified with the app menu: Welcome, open cluster windows, port forwards, About, Check for Updates, Settings, Quit
+- Sparkle ownership moved into a single `UpdateController.shared` singleton; both the app menu and the menu-bar icon route through it
+
+### Fixed
+- "Check for Updates…" is now always discoverable. Previously it lived only inside the cluster `WindowGroup`'s command menu, so it disappeared when no cluster window was focused — and was hidden entirely when the bundle had no `CFBundleIdentifier`. Now visible in both the app menu and the menu-bar-icon dropdown, disabled when Sparkle isn't available (e.g. `swift run`)
+- Removed duplicate "Connect to Cluster…" + "Welcome Screen" entries that did the same thing
+
 ## [0.3.0] - 2026-05-28
 
 ### Added
