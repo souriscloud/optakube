@@ -273,9 +273,9 @@ echo ""
 echo "→ [10/10] Creating GitHub release..."
 # Delete existing release if re-releasing
 gh release delete "v$VERSION" --yes 2>/dev/null || true
-GH_FLAGS=()
-[ "$BETA" = "1" ] && GH_FLAGS+=(--prerelease)
-gh release create "v$VERSION" "$DMG_PATH" "${GH_FLAGS[@]}" \
+GH_PRERELEASE=""
+[ "$BETA" = "1" ] && GH_PRERELEASE="--prerelease"
+gh release create "v$VERSION" "$DMG_PATH" $GH_PRERELEASE \
     --title "OptaKube v$VERSION" \
     --notes "$CHANGELOG_EXCERPT
 
