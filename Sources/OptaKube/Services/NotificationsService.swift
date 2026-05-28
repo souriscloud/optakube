@@ -52,13 +52,21 @@ final class NotificationsService {
         lastSeen.removeValue(forKey: clusterId)
     }
 
+    /// `UNUserNotificationCenter.current()` hard-asserts ("bundleProxyForCurrentProcess
+    /// is nil") when the process has no app bundle — i.e. under `swift run` or a raw SPM
+    /// binary. Notifications can't work without a bundle anyway, so we no-op there,
+    /// mirroring how Sparkle is gated to bundled runs.
+    private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
     private func ensureAuthorization() {
+        guard isBundled else { return }
         guard !authorizationRequested else { return }
         authorizationRequested = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     private func fire(title: String, body: String, threadId: String) {
+        guard isBundled else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
