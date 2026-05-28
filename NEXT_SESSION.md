@@ -1,42 +1,21 @@
 # Next session plan
 
-Shipped: **v0.4.1** (https://github.com/souriscloud/optakube/releases/tag/v0.4.1)
+Shipped: **v0.4.2** (https://github.com/souriscloud/optakube/releases/tag/v0.4.2)
 What's deferred from this iteration, ordered by ship-ability.
 
 ---
 
-## 0.4.2 — actor-ify K8sAPIClient (smallest, ship first)
+## ✅ DONE in 0.4.2
 
-**Goal:** drop `@unchecked Sendable` + `NSLock` on `K8sAPIClient`. ~30–60 min focused.
-
-- `Sources/OptaKube/Services/K8sAPIClient.swift:776 lines`
-- Currently `final class K8sAPIClient: @unchecked Sendable` with manual `NSLock` guarding `lastTLSError`
-- Two viable shapes:
-  - **A. Convert to `actor K8sAPIClient`** — natural fit, but every callsite becomes `await`. Audit: ~15 call sites across `AppViewModel`, `RevisionDiffView`, `EventsListView`, `LogStreamView`, `PortForwardService`. Most are already `await`-able.
-  - **B. Keep class, replace `NSLock` with an internal `actor` for the mutable bits** — less call-site churn. The only mutable state is `lastTLSError` (and identity from PKCS12 import).
-- **Recommendation: A.** The class is mostly `async` already; explicit actor isolation is cleaner than a hybrid.
-- **Gotchas:**
-  - `URLSessionDelegate` methods must stay non-isolated (URLSession invokes them on its own queue). Keep them as a separate `class TrustDelegate: NSObject` that captures the actor weakly and `Task { await actor.recordTLSError(...) }` from the delegate.
-  - The `@objc(URLSession:didReceiveChallenge:completionHandler:)` selector survives whole-module opt — do NOT remove that workaround.
-- **Test:** reconnect to an EKS cluster + a self-signed cluster + run log streaming for 5+ min. No regressions on the 0.3.3 TLS fix.
-
----
-
-## 0.4.3 — perf hotspots in `typedWatch`
-
-Cheap, isolatable wins. Independent of the actor refactor.
-
-- `Sources/OptaKube/ViewModels/AppViewModel.swift:441` `typedWatch<T>`
-  - Line 456: `if !items.contains(where: { $0.id == event.object.id })` — O(N) per ADDED
-  - Line 460: `firstIndex(where:)` — O(N) per MODIFIED
-  - implicit `removeAll(where:)` for DELETED — O(N) per event
-- Replace with a parallel `[String: Int]` id→index dict maintained alongside the array. Mutations stay O(1), the array stays as the SwiftUI source-of-truth.
-- **Burst mitigation:** add a 50–100ms debounce that coalesces multiple watch events into a single `@Observable` notification. Right now a Pod startup storm (200 pods all going Pending→Running over 2s) re-renders the table 200 times.
-- **Measure first.** Use Instruments → SwiftUI template, scenario: connect to a busy cluster, time-profile while pods are flapping. Don't optimize until the trace shows it matters.
+- **`K8sAPIClient` actor-ish refactor.** Did **option B-variant**, not the full-actor A: extracted a small `TLSTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable` that owns the TLS trust state + client identity/cert + the `NSLock`-guarded `lastTLSError`. `K8sAPIClient` itself is now a plain `final class K8sAPIClient: Sendable` with only `let` state — no `@unchecked`, no lock, no `NSObject`. This avoided turning ~15 call sites into `await`. The `@objc(URLSession:didReceiveChallenge:completionHandler:)` workaround is preserved verbatim inside the delegate.
+- **`typedWatch` perf.** Added `WatchCoalescer<T>` actor + `applyWatchBatch(...)` `@MainActor` method in `AppViewModel`. Trailing-edge 100ms debounce → one `@Observable` mutation per burst window instead of per event; batch apply uses an id→index map (O(batch + items)). The old `contains`/`firstIndex`/`removeAll` linear scans are gone.
+- ⚠️ **Not yet validated against a real busy cluster.** The coalescer is correct by construction (final drain guarantees no stale tail) but nobody has watched a 200-pod startup storm through it yet. If anything looks off, the suspect is `applyWatchBatch` delete-reindex or the `flushTask` lifetime in `typedWatch`.
 
 ---
 
 ## 0.4.4 — events watch (kill the 5s poll)
+
+**Lowest priority — the poll works.** Only do this if you want the resource savings; not worth risking a working feature otherwise.
 
 - `Sources/OptaKube/Views/Detail/EventsListView.swift:97` polls every 5s while visible
 - Kubernetes DOES expose a watch on `/api/v1/namespaces/{ns}/events?fieldSelector=involvedObject.uid={uid}`
