@@ -689,18 +689,31 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 
     // MARK: - URLSessionDelegate (TLS)
-
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    //
+    // The completion-handler signature is the only one URLSession reliably finds via
+    // `responds(to:)` in release builds. Swift's `async -> (...)` variant relies on
+    // ObjC bridging that whole-module optimisation can strip — when that happens,
+    // URLSession silently falls back to default handling, which rejects our custom CA
+    // and surfaces the generic "A TLS error caused the secure connection to fail".
+    // `@objc` here forces the symbol to be exported even under aggressive optimisation.
+    @objc(URLSession:didReceiveChallenge:completionHandler:)
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
         let protectionSpace = challenge.protectionSpace
 
         if protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
             guard let serverTrust = protectionSpace.serverTrust else {
                 lastTLSError = "no serverTrust in challenge"
-                return (.cancelAuthenticationChallenge, nil)
+                completionHandler(.cancelAuthenticationChallenge, nil)
+                return
             }
 
             if connection.insecureSkipTLS {
-                return (.useCredential, URLCredential(trust: serverTrust))
+                completionHandler(.useCredential, URLCredential(trust: serverTrust))
+                return
             }
 
             if let caData = connection.certificateAuthorityData {
@@ -709,39 +722,43 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
                 guard let caDER = pemToDER(caData, type: "CERTIFICATE"),
                       let caCert = SecCertificateCreateWithData(nil, caDER as CFData) else {
                     lastTLSError = "failed to parse certificate-authority-data from kubeconfig"
-                    return (.cancelAuthenticationChallenge, nil)
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                    return
                 }
 
                 SecTrustSetAnchorCertificates(serverTrust, [caCert] as CFArray)
                 SecTrustSetAnchorCertificatesOnly(serverTrust, true)
 
                 // Evaluate explicitly so we can capture and surface the real reason on failure.
-                // URLSession will otherwise just report -1200 ("A TLS error caused the secure
-                // connection to fail") with no detail, which is what the user reported.
                 var trustError: CFError?
                 if SecTrustEvaluateWithError(serverTrust, &trustError) {
                     lastTLSError = nil
-                    return (.useCredential, URLCredential(trust: serverTrust))
+                    completionHandler(.useCredential, URLCredential(trust: serverTrust))
+                    return
                 }
 
                 let reason = trustError.map { CFErrorCopyDescription($0) as String } ?? "unknown"
                 let host = protectionSpace.host
                 lastTLSError = "server trust for \(host): \(reason)"
-                return (.cancelAuthenticationChallenge, nil)
+                completionHandler(.cancelAuthenticationChallenge, nil)
+                return
             }
 
-            return (.performDefaultHandling, nil)
+            completionHandler(.performDefaultHandling, nil)
+            return
         }
 
         if protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
             if let identity = clientIdentity {
                 let certs: [SecCertificate] = clientCertificate.map { [$0] } ?? []
-                return (.useCredential, URLCredential(identity: identity, certificates: certs, persistence: .forSession))
+                completionHandler(.useCredential, URLCredential(identity: identity, certificates: certs, persistence: .forSession))
+                return
             }
-            return (.performDefaultHandling, nil)
+            completionHandler(.performDefaultHandling, nil)
+            return
         }
 
-        return (.performDefaultHandling, nil)
+        completionHandler(.performDefaultHandling, nil)
     }
 }
 

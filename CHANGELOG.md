@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-28
+
+### Fixed
+- EKS / custom-CA TLS rejection in release builds. The URLSession challenge delegate was written as an `async -> (...)` method, which relies on Swift's ObjC bridge that whole-module optimisation in release builds can strip. URLSession's `responds(to:)` then returned false and it fell back to default handling — which rejects custom CAs and surfaces the generic "A TLS error caused the secure connection to fail". Switched to the explicit `@objc` completion-handler signature so the selector is always exported, regardless of optimisation level. This is why TLS worked under `swift run` but failed in shipped .app installs.
+
 ## [0.3.1] - 2026-05-28
 
 ### Changed
