@@ -679,11 +679,16 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         return data
     }
 
-    /// Replace URLSession's opaque TLS wrapper with the specific reason our delegate captured,
-    /// when present. Returns the original error otherwise.
+    /// Replace URLSession's opaque TLS wrapper with the specific reason our delegate
+    /// captured. When the delegate never fired (or fired and approved trust but URLSession
+    /// rejected anyway, e.g. on ATS grounds), at least include the URLError code so the
+    /// user sees something more diagnostic than the generic "A TLS error caused…".
     private func enrichTransportError(_ error: Error) -> Error {
         if let tls = lastTLSError {
             return K8sError.connectionFailed("TLS: \(tls)")
+        }
+        if let urlError = error as? URLError {
+            return K8sError.connectionFailed("\(urlError.localizedDescription) [URLError \(urlError.code.rawValue)]")
         }
         return error
     }

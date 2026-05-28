@@ -15,9 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.3.2</string>
+    <string>0.3.3</string>
     <key>CFBundleVersion</key>
-    <string>302</string>
+    <string>303</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSMainNibFile</key>
@@ -30,5 +30,15 @@
     <string>4uTQZEdMy3jrq7GANt1oiPJuTk1q5pKHJLf6xMjiWz8=</string>
     <key>com.apple.security.network.client</key>
     <true/>
+    <!-- OptaKube connects to user-specified Kubernetes API servers, signed by self-
+         managed cluster CAs that ATS's default policy rejects even after our delegate
+         approves the server trust (ATS also enforces cert-algorithm/TLS-version checks
+         independent of trust evaluation). The kubeconfig CA is still pinned and
+         verified via SecTrustEvaluateWithError in K8sAPIClient; ATS just steps aside. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
 </dict>
 </plist>

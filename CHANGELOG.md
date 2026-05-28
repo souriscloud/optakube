@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-28
+
+### Fixed
+- EKS / custom-CA TLS rejection in shipped .app builds, take three. ATS in a notarized .app applies its own policy checks (TLS minimum version, cert algorithm, etc.) AFTER the URLSession delegate approves the server trust — and rejects Kubernetes API servers signed by self-managed cluster CAs regardless of our SecTrust pinning. The Info.plist now declares `NSAppTransportSecurity → NSAllowsArbitraryLoads`, letting our existing custom-CA verification (via `SecTrustEvaluateWithError`) actually take effect. This is why TLS worked under `swift run` (no ATS) but every shipped .app since v0.2.0 fell back to the generic "A TLS error caused the secure connection to fail"
+- Transport errors now include the URLError code in the banner (e.g. `[URLError -1200]`) so we're never blind again to which class of failure URLSession reported
+
 ## [0.3.2] - 2026-05-28
 
 ### Fixed
