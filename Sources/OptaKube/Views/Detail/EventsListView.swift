@@ -1,11 +1,24 @@
 import SwiftUI
 
+/// Per-resource cache of event counts so the "Events" tab title can show a warning
+/// badge without the tab itself being visible.
+@MainActor
+final class EventBadgeStore: ObservableObject {
+    static let shared = EventBadgeStore()
+    @Published var warningCounts: [String: Int] = [:]
+
+    static func key(_ rid: ResourceIdentifier) -> String {
+        "\(rid.clusterId)|\(rid.resourceType.rawValue)|\(rid.namespace ?? "")|\(rid.name)"
+    }
+}
+
 struct EventsListView: View {
     @Environment(AppViewModel.self) private var viewModel
     let resource: ResourceIdentifier
     @State private var events: [K8sEvent] = []
     @State private var isLoading = true
     @State private var errorMsg: String?
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -71,8 +84,40 @@ struct EventsListView: View {
                 }
             }
         }
-        .onAppear { loadEvents() }
-        .onChange(of: resource) { _, _ in loadEvents() }
+        .onAppear { startPolling() }
+        .onDisappear { refreshTask?.cancel(); refreshTask = nil }
+        .onChange(of: resource) { _, _ in startPolling() }
+    }
+
+    private func startPolling() {
+        refreshTask?.cancel()
+        loadEvents()
+        // Lightweight 5s poll while the tab is visible. K8s doesn't push events to a
+        // resource-scoped subscriber, so a periodic relist is the realistic option.
+        refreshTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                await refreshOnce()
+            }
+        }
+    }
+
+    private func refreshOnce() async {
+        guard let client = viewModel.activeClients[resource.clusterId] else { return }
+        let kind = resource.resourceType.displayName.dropLast(resource.resourceType.displayName.hasSuffix("s") ? 1 : 0)
+        if let result = try? await client.listEventsForResource(
+            kind: String(kind),
+            name: resource.name,
+            namespace: resource.namespace
+        ) {
+            let sorted = result.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
+            let warnings = sorted.filter { $0.type == "Warning" }.count
+            await MainActor.run {
+                events = sorted
+                EventBadgeStore.shared.warningCounts[EventBadgeStore.key(resource)] = warnings
+            }
+        }
     }
 
     private func loadEvents() {
@@ -86,9 +131,12 @@ struct EventsListView: View {
                     name: resource.name,
                     namespace: resource.namespace
                 )
+                let sorted = result.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
+                let warnings = sorted.filter { $0.type == "Warning" }.count
                 await MainActor.run {
-                    events = result.sorted { ($0.lastTimestamp ?? .distantPast) > ($1.lastTimestamp ?? .distantPast) }
+                    events = sorted
                     isLoading = false
+                    EventBadgeStore.shared.warningCounts[EventBadgeStore.key(resource)] = warnings
                 }
             } catch {
                 await MainActor.run {

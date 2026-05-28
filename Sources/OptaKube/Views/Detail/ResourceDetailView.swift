@@ -4,6 +4,7 @@ import Yams
 
 struct ResourceDetailView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @ObservedObject private var eventBadges = EventBadgeStore.shared
     let resource: ResourceIdentifier
     @State private var selectedTabId: String = "overview"
     @State private var yamlContent: String = ""
@@ -69,14 +70,25 @@ struct ResourceDetailView: View {
                         Button {
                             selectedTabId = tab.id
                         } label: {
-                            Text(tab.label)
-                                .font(.subheadline)
-                                .fontWeight(selectedTabId == tab.id ? .semibold : .regular)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(selectedTabId == tab.id ? Color.accentColor.opacity(0.15) : Color.clear)
-                                .foregroundStyle(selectedTabId == tab.id ? Color.accentColor : .secondary)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            HStack(spacing: 4) {
+                                Text(tab.label)
+                                if tab.id == "events", let warns = eventBadges.warningCounts[EventBadgeStore.key(resource)], warns > 0 {
+                                    Text("\(warns)")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.orange)
+                                        .foregroundStyle(.white)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .font(.subheadline)
+                            .fontWeight(selectedTabId == tab.id ? .semibold : .regular)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(selectedTabId == tab.id ? Color.accentColor.opacity(0.15) : Color.clear)
+                            .foregroundStyle(selectedTabId == tab.id ? Color.accentColor : .secondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
                     }
@@ -92,6 +104,8 @@ struct ResourceDetailView: View {
                 overviewContent
             } else if selectedTabId == "events" {
                 EventsListView(resource: resource)
+            } else if selectedTabId == "diff" {
+                RevisionDiffView(resource: resource)
             } else if selectedTabId == "yaml" {
                 yamlTabContent
             } else if selectedTabId.hasPrefix("container:") {
@@ -120,6 +134,9 @@ struct ResourceDetailView: View {
             }
         }
         tabs.append(TabItem("events", label: "Events"))
+        if resource.resourceType == .deployments {
+            tabs.append(TabItem("diff", label: "Diff"))
+        }
         tabs.append(TabItem("yaml", label: "YAML"))
         return tabs
     }

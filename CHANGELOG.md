@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-28
+
+### Added
+- **Diff tab on Deployments.** Lists historical ReplicaSet revisions; selecting one renders a side-by-side YAML diff of the pod template against the live deployment, with red highlighting for removed/changed lines on the left and green for inserts/changes on the right. What you reach for before clicking Rollback
+- **Events tab: live updates.** Re-polls events every 5 seconds while the tab is visible (Kubernetes doesn't expose a per-resource subscription, so polling is the right shape here). Plus a warning-count badge on the tab title — visible from the Overview tab too, so you don't have to click in to notice new failures
+
+### Fixed
+- **Live updates across multiple clusters.** `watchTask` was singular: loading a second cluster's resources cancelled the first cluster's watch, so only the most-recently-loaded cluster received ADDED/MODIFIED/DELETED events. Now one watch per cluster — every connected cluster gets live updates simultaneously
+- Watch cancellation on disconnect now scopes to just that cluster instead of being implicit via the singular task being overwritten
+
 ## [0.4.0] - 2026-05-28
 
 ### Added

@@ -121,7 +121,10 @@ final class AppViewModel: Identifiable {
     var lastRefreshTime: Date?
 
     private var refreshTask: Task<Void, Never>?
-    private var watchTask: Task<Void, Never>?
+    /// One watch task per cluster. Was previously a single `watchTask` which meant
+    /// only the most-recently-loaded cluster got live updates — every prior cluster's
+    /// watch was silently cancelled. Now each cluster runs its own.
+    private var watchTasks: [String: Task<Void, Never>] = [:]
     private var resourceVersions: [String: String] = [:]  // clusterId -> resourceVersion
 
     init(id: String = UUID().uuidString) {
@@ -178,6 +181,7 @@ final class AppViewModel: Identifiable {
     }
 
     func disconnect(from connectionId: String) {
+        stopWatch(for: connectionId)
         activeClients.removeValue(forKey: connectionId)
         connectionStatuses[connectionId] = .disconnected
         selectedClusterIds.remove(connectionId)
@@ -362,8 +366,12 @@ final class AppViewModel: Identifiable {
         refreshTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))
-                // Only do full refresh if watch isn't active (fallback for unsupported types)
-                if watchTask == nil {
+                // Fallback poll for any selected cluster that doesn't have an active watch.
+                // The watch path handles the typical case; this catches resource types
+                // that aren't yet wired into runWatch's switch (default branch sleeps 30s)
+                // and any cluster whose watch hit its retry cap.
+                let unwatched = selectedClusterIds.subtracting(watchTasks.keys)
+                if unwatched.isEmpty == false {
                     await refresh()
                 }
             }
@@ -378,13 +386,13 @@ final class AppViewModel: Identifiable {
     // MARK: - Watch API
 
     func startWatch(for clusterId: String) {
-        watchTask?.cancel()
-        watchTask = nil
+        watchTasks[clusterId]?.cancel()
+        watchTasks[clusterId] = nil
         guard let client = activeClients[clusterId] else { return }
         let type = selectedResourceType
         let ns = type.isNamespaced ? selectedNamespace : nil
 
-        watchTask = Task.detached { [weak self] in
+        let task = Task.detached { [weak self] in
             guard let self = self else { return }
             var failCount = 0
             while !Task.isCancelled && failCount < 5 {
@@ -405,6 +413,7 @@ final class AppViewModel: Identifiable {
             }
             // Watch gave up — auto-refresh will handle updates
         }
+        watchTasks[clusterId] = task
     }
 
     private func runWatch(client: K8sAPIClient, resourceType: ResourceType, namespace: String?, clusterId: String) async throws {
@@ -473,9 +482,16 @@ final class AppViewModel: Identifiable {
     }
 
     func stopWatch() {
-        watchTask?.cancel()
-        watchTask = nil
+        for (_, task) in watchTasks { task.cancel() }
+        watchTasks.removeAll()
         resourceVersions.removeAll()
+    }
+
+    /// Cancel just the named cluster's watch (used on disconnect).
+    func stopWatch(for clusterId: String) {
+        watchTasks[clusterId]?.cancel()
+        watchTasks[clusterId] = nil
+        resourceVersions.removeValue(forKey: clusterId)
     }
 
     // MARK: - State Persistence (keyed by cluster IDs for stable recall)

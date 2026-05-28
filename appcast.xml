@@ -6,20 +6,20 @@
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
     <item>
-      <title>Version 0.4.0</title>
-      <pubDate>Thu, 28 May 2026 20:05:47 +0200</pubDate>
-      <sparkle:version>400</sparkle:version>
-      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+      <title>Version 0.4.1</title>
+      <pubDate>Thu, 28 May 2026 20:32:01 +0200</pubDate>
+      <sparkle:version>401</sparkle:version>
+      <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-        <h2>OptaKube 0.4.0</h2>
+        <h2>OptaKube 0.4.1</h2>
         <p>See <a href="https://github.com/souriscloud/optakube/blob/master/CHANGELOG.md">CHANGELOG</a> for details.</p>
       ]]></description>
       <enclosure
-        url="https://github.com/souriscloud/optakube/releases/download/v0.4.0/OptaKube-0.4.0.dmg"
+        url="https://github.com/souriscloud/optakube/releases/download/v0.4.1/OptaKube-0.4.1.dmg"
         type="application/octet-stream"
-        sparkle:edSignature="aKma6yWmQkfKjOXVOISwE1bWm0iQADtpTbveeTViAo/Cu0+x0hT4sx/YcdLT+36docWPb/DZ2Yo2pM6CESRXDw=="
-        length="6892135"
+        sparkle:edSignature="7SdMXMAaNb/a24IRjsDMFkUA9568wJokgR8xbH8CLg2ypZDjbNXEp2UwyNtonKp+8xsZ3D5dTwQEzZjeiklQCA=="
+        length="6973120"
       />
     </item>
   </channel>
