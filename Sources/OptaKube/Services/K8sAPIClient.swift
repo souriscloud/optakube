@@ -286,7 +286,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    guard var url = resourceType.listURL(server: connection.server, namespace: namespace) else {
+                    guard let url = resourceType.listURL(server: connection.server, namespace: namespace) else {
                         continuation.finish(throwing: K8sError.invalidURL)
                         return
                     }
@@ -467,9 +467,10 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
             throw K8sError.requestFailed(404, "Revision \(toRevision) not found")
         }
 
-        // Get the full RS to extract its pod template
+        // Sanity check: fetch the full RS to confirm it has a pod template before we
+        // bother pulling the raw JSON to splice the template back into the deployment.
         let rs = try await get(ReplicaSet.self, resourceType: .replicaSets, name: targetRS.name, namespace: namespace)
-        guard let template = rs.spec?.template else {
+        guard rs.spec?.template != nil else {
             throw K8sError.decodingFailed("ReplicaSet has no pod template")
         }
 
@@ -494,7 +495,8 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     func addEphemeralContainer(podName: String, namespace: String?, containerName: String, image: String) async throws {
         guard let ns = namespace else { throw K8sError.invalidURL }
-        guard let url = URL(string: "\(connection.server)/api/v1/namespaces/\(ns)/pods/\(podName)/ephemeralcontainers") else {
+        // Validate the URL is constructable; the actual request below uses podURL built via ResourceType.
+        guard URL(string: "\(connection.server)/api/v1/namespaces/\(ns)/pods/\(podName)/ephemeralcontainers") != nil else {
             throw K8sError.invalidURL
         }
 

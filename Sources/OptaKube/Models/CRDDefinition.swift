@@ -31,8 +31,12 @@ struct CRDDefinition: Identifiable, Hashable, Codable {
     }
 }
 
-/// A generic K8s resource loaded from a CRD — stored as raw JSON
-struct GenericK8sResource: Identifiable, Sendable {
+/// A generic K8s resource loaded from a CRD — stored as raw JSON.
+/// `raw` is `[String: Any]` which the Swift-6 concurrency checker can't reason about,
+/// but it only ever contains JSON-decoded primitives (String/Int/Double/Bool/Array/
+/// Dict thereof), all of which are themselves Sendable. `@unchecked Sendable` is the
+/// pragmatic seal here; switching to a typed enum would balloon the model.
+struct GenericK8sResource: Identifiable, @unchecked Sendable {
     let raw: [String: Any]
     let crd: CRDDefinition
 

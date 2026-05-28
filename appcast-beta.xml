@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
-    <title>OptaKube Updates</title>
-    <link>https://raw.githubusercontent.com/souriscloud/optakube/master/appcast.xml</link>
+    <title>OptaKube Updates (Beta)</title>
+    <link>https://raw.githubusercontent.com/souriscloud/optakube/master/appcast-beta.xml</link>
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
     <item>
-      <title>Version 0.4.0</title>
-      <pubDate>Thu, 28 May 2026 20:05:47 +0200</pubDate>
-      <sparkle:version>400</sparkle:version>
-      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+      <title>Version 0.3.3</title>
+      <pubDate>Thu, 28 May 2026 19:33:14 +0200</pubDate>
+      <sparkle:version>303</sparkle:version>
+      <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-        <h2>OptaKube 0.4.0</h2>
+        <h2>OptaKube 0.3.3</h2>
         <p>See <a href="https://github.com/souriscloud/optakube/blob/master/CHANGELOG.md">CHANGELOG</a> for details.</p>
       ]]></description>
       <enclosure
-        url="https://github.com/souriscloud/optakube/releases/download/v0.4.0/OptaKube-0.4.0.dmg"
+        url="https://github.com/souriscloud/optakube/releases/download/v0.3.3/OptaKube-0.3.3.dmg"
         type="application/octet-stream"
-        sparkle:edSignature="aKma6yWmQkfKjOXVOISwE1bWm0iQADtpTbveeTViAo/Cu0+x0hT4sx/YcdLT+36docWPb/DZ2Yo2pM6CESRXDw=="
-        length="6892135"
+        sparkle:edSignature="4m2uPZ6EwPeyb/pcarZigfDme3ZLol0dWRUrQrJRfWcWT9nbG7ewHZB4RagC+Jq5/sPbkCJvXEtupiNXSzP5AQ=="
+        length="6868472"
       />
     </item>
   </channel>

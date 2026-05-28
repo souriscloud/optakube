@@ -137,58 +137,95 @@ struct SpotlightSearch: View {
 
     private func preloadAllResources() async {
         let typesToLoad: [ResourceType] = [.pods, .deployments, .services, .statefulSets, .daemonSets, .jobs, .cronJobs, .configMaps, .secrets, .nodes, .ingresses]
-        for clusterId in viewModel.selectedClusterIds {
-            guard let client = viewModel.activeClients[clusterId] else { continue }
-            // Load types that aren't already loaded (don't re-fetch current type)
+        // Snapshot main-actor state once. Doing this inside a TaskGroup's nonisolated
+        // closure (as `where` clauses) tripped Swift-6 main-actor-isolation warnings.
+        let clusterIds = viewModel.selectedClusterIds
+        let selectedNs = viewModel.selectedNamespace
+        let clients = viewModel.activeClients
+        let already = loadedTypes(clusterIds: clusterIds, types: typesToLoad)
+
+        for clusterId in clusterIds {
+            guard let client = clients[clusterId] else { continue }
             await withTaskGroup(of: Void.self) { group in
                 for type in typesToLoad {
-                    let ns = type.isNamespaced ? viewModel.selectedNamespace : nil
+                    if already.contains("\(clusterId)/\(type.rawValue)") { continue }
+                    let ns = type.isNamespaced ? selectedNs : nil
                     group.addTask {
-                        do {
-                            switch type {
-                            case .pods where viewModel.pods[clusterId] == nil || viewModel.pods[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Pod.self, resourceType: .pods, namespace: ns)
-                                await MainActor.run { viewModel.pods[clusterId] = items }
-                            case .deployments where viewModel.deployments[clusterId] == nil || viewModel.deployments[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Deployment.self, resourceType: .deployments, namespace: ns)
-                                await MainActor.run { viewModel.deployments[clusterId] = items }
-                            case .services where viewModel.services[clusterId] == nil || viewModel.services[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Service.self, resourceType: .services, namespace: ns)
-                                await MainActor.run { viewModel.services[clusterId] = items }
-                            case .statefulSets where viewModel.statefulSets[clusterId] == nil || viewModel.statefulSets[clusterId]?.isEmpty == true:
-                                let items = try await client.list(StatefulSet.self, resourceType: .statefulSets, namespace: ns)
-                                await MainActor.run { viewModel.statefulSets[clusterId] = items }
-                            case .daemonSets where viewModel.daemonSets[clusterId] == nil || viewModel.daemonSets[clusterId]?.isEmpty == true:
-                                let items = try await client.list(DaemonSet.self, resourceType: .daemonSets, namespace: ns)
-                                await MainActor.run { viewModel.daemonSets[clusterId] = items }
-                            case .jobs where viewModel.jobs[clusterId] == nil || viewModel.jobs[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Job.self, resourceType: .jobs, namespace: ns)
-                                await MainActor.run { viewModel.jobs[clusterId] = items }
-                            case .cronJobs where viewModel.cronJobs[clusterId] == nil || viewModel.cronJobs[clusterId]?.isEmpty == true:
-                                let items = try await client.list(CronJob.self, resourceType: .cronJobs, namespace: ns)
-                                await MainActor.run { viewModel.cronJobs[clusterId] = items }
-                            case .configMaps where viewModel.configMaps[clusterId] == nil || viewModel.configMaps[clusterId]?.isEmpty == true:
-                                let items = try await client.list(ConfigMap.self, resourceType: .configMaps, namespace: ns)
-                                await MainActor.run { viewModel.configMaps[clusterId] = items }
-                            case .secrets where viewModel.secrets[clusterId] == nil || viewModel.secrets[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Secret.self, resourceType: .secrets, namespace: ns)
-                                await MainActor.run { viewModel.secrets[clusterId] = items }
-                            case .nodes where viewModel.nodes[clusterId] == nil || viewModel.nodes[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Node.self, resourceType: .nodes)
-                                await MainActor.run { viewModel.nodes[clusterId] = items }
-                            case .ingresses where viewModel.ingresses[clusterId] == nil || viewModel.ingresses[clusterId]?.isEmpty == true:
-                                let items = try await client.list(Ingress.self, resourceType: .ingresses, namespace: ns)
-                                await MainActor.run { viewModel.ingresses[clusterId] = items }
-                            default: break
-                            }
-                        } catch {
-                            // Silently skip — search just won't find resources from this type
-                        }
+                        await loadType(type, clusterId: clusterId, client: client, namespace: ns)
                     }
                 }
             }
-            // Update search results after preload
             await MainActor.run { updateResults() }
+        }
+    }
+
+    /// Snapshot which (cluster, type) pairs already have data, so the nonisolated
+    /// preload tasks don't have to read `viewModel.*` from off the main actor.
+    private func loadedTypes(clusterIds: Set<String>, types: [ResourceType]) -> Set<String> {
+        var out = Set<String>()
+        for clusterId in clusterIds {
+            for type in types {
+                let hasData: Bool
+                switch type {
+                case .pods: hasData = !(viewModel.pods[clusterId]?.isEmpty ?? true)
+                case .deployments: hasData = !(viewModel.deployments[clusterId]?.isEmpty ?? true)
+                case .services: hasData = !(viewModel.services[clusterId]?.isEmpty ?? true)
+                case .statefulSets: hasData = !(viewModel.statefulSets[clusterId]?.isEmpty ?? true)
+                case .daemonSets: hasData = !(viewModel.daemonSets[clusterId]?.isEmpty ?? true)
+                case .jobs: hasData = !(viewModel.jobs[clusterId]?.isEmpty ?? true)
+                case .cronJobs: hasData = !(viewModel.cronJobs[clusterId]?.isEmpty ?? true)
+                case .configMaps: hasData = !(viewModel.configMaps[clusterId]?.isEmpty ?? true)
+                case .secrets: hasData = !(viewModel.secrets[clusterId]?.isEmpty ?? true)
+                case .nodes: hasData = !(viewModel.nodes[clusterId]?.isEmpty ?? true)
+                case .ingresses: hasData = !(viewModel.ingresses[clusterId]?.isEmpty ?? true)
+                default: hasData = true
+                }
+                if hasData { out.insert("\(clusterId)/\(type.rawValue)") }
+            }
+        }
+        return out
+    }
+
+    private nonisolated func loadType(_ type: ResourceType, clusterId: String, client: K8sAPIClient, namespace: String?) async {
+        do {
+            switch type {
+            case .pods:
+                let items = try await client.list(Pod.self, resourceType: .pods, namespace: namespace)
+                await MainActor.run { viewModel.pods[clusterId] = items }
+            case .deployments:
+                let items = try await client.list(Deployment.self, resourceType: .deployments, namespace: namespace)
+                await MainActor.run { viewModel.deployments[clusterId] = items }
+            case .services:
+                let items = try await client.list(Service.self, resourceType: .services, namespace: namespace)
+                await MainActor.run { viewModel.services[clusterId] = items }
+            case .statefulSets:
+                let items = try await client.list(StatefulSet.self, resourceType: .statefulSets, namespace: namespace)
+                await MainActor.run { viewModel.statefulSets[clusterId] = items }
+            case .daemonSets:
+                let items = try await client.list(DaemonSet.self, resourceType: .daemonSets, namespace: namespace)
+                await MainActor.run { viewModel.daemonSets[clusterId] = items }
+            case .jobs:
+                let items = try await client.list(Job.self, resourceType: .jobs, namespace: namespace)
+                await MainActor.run { viewModel.jobs[clusterId] = items }
+            case .cronJobs:
+                let items = try await client.list(CronJob.self, resourceType: .cronJobs, namespace: namespace)
+                await MainActor.run { viewModel.cronJobs[clusterId] = items }
+            case .configMaps:
+                let items = try await client.list(ConfigMap.self, resourceType: .configMaps, namespace: namespace)
+                await MainActor.run { viewModel.configMaps[clusterId] = items }
+            case .secrets:
+                let items = try await client.list(Secret.self, resourceType: .secrets, namespace: namespace)
+                await MainActor.run { viewModel.secrets[clusterId] = items }
+            case .nodes:
+                let items = try await client.list(Node.self, resourceType: .nodes)
+                await MainActor.run { viewModel.nodes[clusterId] = items }
+            case .ingresses:
+                let items = try await client.list(Ingress.self, resourceType: .ingresses, namespace: namespace)
+                await MainActor.run { viewModel.ingresses[clusterId] = items }
+            default: break
+            }
+        } catch {
+            // Silently skip — search just won't find resources from this type
         }
     }
 
@@ -203,11 +240,31 @@ struct SpotlightSearch: View {
     }
 
     private func defaultResults() -> [SpotlightResult] {
-        var items: [SpotlightResult] = [
+        var items: [SpotlightResult] = []
+
+        // Recents first — only those whose cluster is currently active so we don't
+        // surface dead entries from kubeconfigs the user has since removed.
+        let active = viewModel.selectedClusterIds
+        let recents = RecentsStore.shared.all().filter { active.contains($0.clusterId) }
+        for entry in recents.prefix(5) {
+            guard let type = entry.resourceType else { continue }
+            let rid = ResourceIdentifier(clusterId: entry.clusterId, resourceType: type, name: entry.name, namespace: entry.namespace)
+            let ns = entry.namespace.map { "\($0) · " } ?? ""
+            items.append(SpotlightResult(
+                id: "recent:\(entry.id)",
+                icon: "clock.arrow.circlepath",
+                title: entry.name,
+                subtitle: "\(ns)\(type.displayName) (recent)",
+                category: .resource,
+                resourceId: rid
+            ))
+        }
+
+        items.append(contentsOf: [
             SpotlightResult(id: "action:refresh", icon: "arrow.clockwise", title: "Refresh", subtitle: "Reload current resources", category: .action),
             SpotlightResult(id: "action:terminal", icon: "terminal", title: "Toggle Terminal", subtitle: "Cmd+Shift+T", category: .action),
             SpotlightResult(id: "action:overview", icon: "gauge.with.dots.needle.33percent", title: "Cluster Overview", subtitle: "Dashboard", category: .action),
-        ]
+        ])
         for type in ResourceType.allCases.prefix(8) {
             items.append(SpotlightResult(id: "type:\(type.rawValue)", icon: type.systemImage, title: type.displayName, subtitle: "Switch view", category: .resourceType))
         }
@@ -360,6 +417,7 @@ struct SpotlightSearch: View {
 
         case .resource:
             if let rid = result.resourceId {
+                RecentsStore.shared.record(resource: rid)
                 viewModel.selectBuiltInType(rid.resourceType)
                 Task { await viewModel.refresh() }
                 // Delay selection to let the list populate

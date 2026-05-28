@@ -11,7 +11,6 @@ struct StatusBar: View {
         HStack(spacing: 10) {
             // Connection status with custom names/colors
             ForEach(viewModel.activeConnections) { conn in
-                let status = viewModel.connectionStatuses[conn.id] ?? .disconnected
                 HStack(spacing: 3) {
                     Circle()
                         .fill(customStore.color(for: conn.id))

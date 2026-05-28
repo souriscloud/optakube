@@ -8,8 +8,15 @@ import Sparkle
 /// Sparkle reads `SUFeedURL` + `SUPublicEDKey` from Info.plist, which is only present
 /// in a real .app bundle. Under `swift run` there's no bundle, so we skip init
 /// gracefully and the menu items become no-ops (still visible — disabled).
+/// Update channel — release (default, stable) or beta (pre-releases via appcast-beta.xml).
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case release, beta
+    var id: String { rawValue }
+    var displayName: String { self == .beta ? "Beta" : "Release" }
+}
+
 @MainActor
-final class UpdateController: NSObject {
+final class UpdateController: NSObject, SPUUpdaterDelegate {
     static let shared = UpdateController()
 
     private(set) var standardController: SPUStandardUpdaterController?
@@ -23,7 +30,7 @@ final class UpdateController: NSObject {
         guard Bundle.main.bundleIdentifier != nil else { return }
         self.standardController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: self,
             userDriverDelegate: nil
         )
         // Scheduled checks only fire once per SUScheduledCheckInterval (~24h). A
@@ -38,5 +45,24 @@ final class UpdateController: NSObject {
 
     func checkForUpdates(_ sender: Any?) {
         standardController?.checkForUpdates(sender)
+    }
+
+    // MARK: - SPUUpdaterDelegate
+
+    /// Route between stable and beta appcasts based on the user's chosen channel.
+    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
+        let channel = MainActor.assumeIsolated { Self.currentChannel }
+        switch channel {
+        case .beta: return "https://raw.githubusercontent.com/souriscloud/optakube/master/appcast-beta.xml"
+        case .release: return "https://raw.githubusercontent.com/souriscloud/optakube/master/appcast.xml"
+        }
+    }
+
+    static var currentChannel: UpdateChannel {
+        get {
+            let raw = UserDefaults.standard.string(forKey: "updateChannel") ?? UpdateChannel.release.rawValue
+            return UpdateChannel(rawValue: raw) ?? .release
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "updateChannel") }
     }
 }

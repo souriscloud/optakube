@@ -29,6 +29,22 @@ extension ClusterConnection {
             context: context
         )
     }
+
+    /// The kubeconfig file this connection was loaded from, parsed back out of `id`
+    /// (which encodes as `"<path>:<contextName>"`). Centralises the split that several
+    /// call sites used to do inline.
+    var kubeconfigPath: String? {
+        Self.splitID(id).path
+    }
+
+    /// Parse an arbitrary connection ID (e.g. from a `ResourceIdentifier.clusterId`)
+    /// into its kubeconfig path and context-name components.
+    static func splitID(_ id: String) -> (path: String?, contextName: String) {
+        let parts = id.split(separator: ":", maxSplits: 1)
+        let path = parts.first.map(String.init)
+        let ctx = parts.count > 1 ? String(parts[1]) : ""
+        return (path, ctx)
+    }
 }
 
 enum ConnectionStatus: Equatable {

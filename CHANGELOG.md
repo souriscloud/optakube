@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-28
+
+### Added
+- **Beta channel.** Settings → Updates lets you switch between Release (default) and Beta. Beta builds publish to `appcast-beta.xml`; Sparkle picks the feed dynamically via the SPUUpdaterDelegate
+- **Pod restart notifications.** When a watched pod's restart count goes up, OptaKube posts a system notification (Settings → Updates → "Notify on pod restart" to disable). Requires Notifications permission on first restart event
+- **Recently used resources in Cmd+K.** Empty-query palette now shows the last 5 resources you opened from a connected cluster, with a clock icon to distinguish from live search hits. Stored in UserDefaults, bounded to 20 entries
+
+### Changed
+- **release.sh `--dry-run`.** Builds, signs, notarizes, staples, and Sparkle-signs the DMG without pushing to git or creating a GitHub release. Lets you verify locally before publishing
+- **release.sh `--beta`.** Updates `appcast-beta.xml` instead of `appcast.xml` and marks the GitHub release as a pre-release
+- **Menu-bar dropdown file/struct renamed** from `PortForwardMenuBarView` → `MenuBarDropdownView` (it's been the whole unified menu since 0.3.1)
+- **`ClusterConnection.kubeconfigPath` / `.splitID()`** helpers replace three duplicated copies of `id.split(":", maxSplits: 1)` across the codebase
+
+### Fixed
+- All compiler warnings: unused `var`, unused bindings, Swift-6 main-actor isolation warnings in `SpotlightSearch.preloadAllResources` (case-pattern `where` clauses are nonisolated autoclosures and couldn't read the view model)
+- Removed empty `Sources/OptaKube/Extensions` and `Sources/OptaKube/Utilities` directories
+- Unused `let status` in StatusBar, unused `let template` / `let url` / `let ctx` in K8sAPIClient and MainWindow
+
 ## [0.3.3] - 2026-05-28
 
 ### Fixed

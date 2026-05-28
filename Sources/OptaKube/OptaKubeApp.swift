@@ -64,7 +64,7 @@ struct OptaKubeApp: App {
         // `.menu` style renders the contents as a native NSMenu so it looks like every
         // other macOS menu bar app instead of a custom SwiftUI popover.
         MenuBarExtra("OptaKube", systemImage: "square.stack.3d.up") {
-            PortForwardMenuBarView()
+            MenuBarDropdownView()
         }
         .menuBarExtraStyle(.menu)
 

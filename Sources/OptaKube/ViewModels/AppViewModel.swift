@@ -182,6 +182,7 @@ final class AppViewModel: Identifiable {
         connectionStatuses[connectionId] = .disconnected
         selectedClusterIds.remove(connectionId)
         clearResources(for: connectionId)
+        Task { @MainActor in NotificationsService.shared.reset(clusterId: connectionId) }
     }
 
     func toggleCluster(_ connection: ClusterConnection) async {
@@ -252,7 +253,11 @@ final class AppViewModel: Identifiable {
             switch selectedResourceType {
             case .pods:
                 let r = try await client.listWithVersion(Pod.self, resourceType: .pods, namespace: ns)
-                await MainActor.run { pods[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+                await MainActor.run {
+                    pods[clusterId] = r.items
+                    resourceVersions[clusterId] = r.resourceVersion
+                    NotificationsService.shared.observe(pods: r.items, clusterId: clusterId)
+                }
             case .deployments:
                 let r = try await client.listWithVersion(Deployment.self, resourceType: .deployments, namespace: ns)
                 await MainActor.run { deployments[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }

@@ -8,7 +8,7 @@ import AppKit
 ///
 /// Rendered as a native NSMenu via `.menuBarExtraStyle(.menu)`, so use plain
 /// Buttons + Dividers only — no custom SwiftUI layouts in here.
-struct PortForwardMenuBarView: View {
+struct MenuBarDropdownView: View {
     var pfManager = PortForwardManager.shared
     var windowManager = WindowManager.shared
     var updater = UpdateController.shared

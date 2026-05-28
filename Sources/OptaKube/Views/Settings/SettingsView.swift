@@ -12,8 +12,13 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Appearance", systemImage: "paintbrush")
                 }
+
+            UpdatesSettingsView()
+                .tabItem {
+                    Label("Updates", systemImage: "arrow.down.circle")
+                }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 420)
     }
 }
 
@@ -157,5 +162,49 @@ struct AppearanceSettingsView: View {
                 || lc.contains("hack") || lc.contains("fira") || lc.contains("jetbrains")
                 || lc.contains("meslo") || lc.contains("cascadia") || lc.contains("source code")
         }.sorted()
+    }
+}
+
+struct UpdatesSettingsView: View {
+    @AppStorage("updateChannel") private var channelRaw = UpdateChannel.release.rawValue
+    @AppStorage("notifyPodRestarts") private var notifyPodRestarts = true
+
+    private var channel: UpdateChannel {
+        get { UpdateChannel(rawValue: channelRaw) ?? .release }
+    }
+
+    var body: some View {
+        Form {
+            Section("Update channel") {
+                Picker("Channel", selection: $channelRaw) {
+                    ForEach(UpdateChannel.allCases) { ch in
+                        Text(ch.displayName).tag(ch.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(channelInfo)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Check for Updates Now") {
+                    UpdateController.shared.checkForUpdates(nil)
+                }
+                .disabled(!UpdateController.shared.isAvailable)
+            }
+            Section("Notifications") {
+                Toggle("Notify on pod restart", isOn: $notifyPodRestarts)
+                Text("Posts a system notification when a watched pod's restart count increases. Requires Notifications permission for OptaKube in System Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    private var channelInfo: String {
+        switch channel {
+        case .release: return "Stable releases only."
+        case .beta: return "Pre-release builds. May include unfinished features or bugs."
+        }
     }
 }

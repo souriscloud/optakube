@@ -387,16 +387,12 @@ struct PortForwardSheet: View {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
         let conn = client.connection
 
-        // Find kubeconfig path from the connection ID (format: "path:contextName")
-        let parts = conn.id.split(separator: ":", maxSplits: 1)
-        let kubeconfigPath = parts.count > 0 ? String(parts[0]) : nil
-
         let pf = conn.portForward(
             namespace: resource.namespace ?? "default",
             podName: resource.name,
             localPort: lp,
             remotePort: rp,
-            kubeconfigPath: kubeconfigPath,
+            kubeconfigPath: conn.kubeconfigPath,
             context: conn.contextName
         )
         PortForwardManager.shared.add(pf)

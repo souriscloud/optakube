@@ -17,10 +17,35 @@ set -euo pipefail
 #   9. Commits, tags, pushes
 #  10. Creates GitHub release with DMG attached
 
+# Flags: --dry-run skips git push, gh release create, and appcast.xml updates.
+# Everything else (build, sign, notarize, staple, Sparkle-sign) still runs so you can
+# verify the artifact locally before publishing. --beta picks the beta appcast.
+DRY_RUN=0
+BETA=0
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run|-n) DRY_RUN=1; shift ;;
+        --beta) BETA=1; shift ;;
+        -h|--help)
+            echo "Usage: $0 [--dry-run] [--beta] <version>"
+            exit 0 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
-    echo "Usage: $0 <version>"
+    echo "Usage: $0 [--dry-run] [--beta] <version>"
     exit 1
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+    echo "*** DRY RUN: will build/sign/notarize/staple but skip git push + gh release + appcast commit ***"
+fi
+if [ "$BETA" = "1" ]; then
+    echo "*** BETA channel: appcast-beta.xml will be updated, not appcast.xml ***"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,7 +55,7 @@ BUILD_DIR="$ROOT_DIR/.build/release-build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 DMG_NAME="$APP_NAME-$VERSION.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"
-APPCAST_PATH="$ROOT_DIR/appcast.xml"
+APPCAST_PATH="$ROOT_DIR/$([ "$BETA" = "1" ] && echo "appcast-beta.xml" || echo "appcast.xml")"
 GITHUB_REPO="${GITHUB_REPO:-souriscloud/optakube}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Luk Novotn (26GLU32796)}"
 TEAM_ID="26GLU32796"
@@ -222,12 +247,21 @@ cat > "$APPCAST_PATH" << APPCAST
 APPCAST
 echo "  Done"
 
+if [ "$DRY_RUN" = "1" ]; then
+    echo ""
+    echo "→ [9-10/10] SKIPPED (dry run)"
+    echo "  DMG: $DMG_PATH"
+    echo "  Appcast would have been written to: $APPCAST_PATH"
+    echo "  To publish: rerun without --dry-run"
+    exit 0
+fi
+
 # ── 9. Git commit, tag, push ──
 echo ""
 echo "→ [9/10] Git commit, tag, push..."
 git add -A
 CHANGELOG_EXCERPT=$(grep -A 100 "## \[$VERSION\]" CHANGELOG.md 2>/dev/null | tail -n +2 | sed '/^## \[/,$d' || echo "See CHANGELOG.md")
-git commit -m "Release v$VERSION" --allow-empty 2>/dev/null || true
+git commit -m "Release v$VERSION$([ "$BETA" = "1" ] && echo " (beta)" || echo "")" --allow-empty 2>/dev/null || true
 # Delete existing tag if re-releasing same version
 git tag -d "v$VERSION" 2>/dev/null || true
 git push origin ":refs/tags/v$VERSION" 2>/dev/null || true
@@ -239,7 +273,9 @@ echo ""
 echo "→ [10/10] Creating GitHub release..."
 # Delete existing release if re-releasing
 gh release delete "v$VERSION" --yes 2>/dev/null || true
-gh release create "v$VERSION" "$DMG_PATH" \
+GH_FLAGS=()
+[ "$BETA" = "1" ] && GH_FLAGS+=(--prerelease)
+gh release create "v$VERSION" "$DMG_PATH" "${GH_FLAGS[@]}" \
     --title "OptaKube v$VERSION" \
     --notes "$CHANGELOG_EXCERPT
 

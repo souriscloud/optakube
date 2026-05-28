@@ -125,7 +125,7 @@ struct MainWindow: View {
             if showTerminal, let conn = viewModel.activeConnections.first {
                 Divider()
                 EmbeddedTerminal(
-                    kubeconfigPath: kubeconfigPathForConnection(conn),
+                    kubeconfigPath: conn.kubeconfigPath,
                     contextName: conn.contextName,
                     namespace: viewModel.selectedNamespace ?? conn.defaultNamespace ?? "default"
                 )
@@ -226,7 +226,6 @@ struct MainWindow: View {
             // into the live shell. Using --context so the active kubectl context in the
             // shell doesn't matter; -- bash with sh fallback covers minimal images.
             withAnimation(.easeInOut(duration: 0.15)) { showTerminal = true }
-            let ctx = contextName(forClusterId: rid.clusterId)
             let ns = rid.namespace ?? "default"
             // Self-announce so we can tell "command never executed" from "kubectl hung".
             // Drop --context (fish already use-context'd at startup) to shorten + reduce
@@ -235,11 +234,6 @@ struct MainWindow: View {
             let kubectl = "kubectl exec -it -n \(shellQuote(ns)) \(shellQuote(rid.name)) -- sh -c 'command -v bash >/dev/null && exec bash || exec sh'"
             TerminalBridge.shared.runCommand("\(banner); \(kubectl)")
         }
-    }
-
-    private func contextName(forClusterId id: String) -> String {
-        let parts = id.split(separator: ":", maxSplits: 1)
-        return parts.count > 1 ? String(parts[1]) : ""
     }
 
     private func shellQuote(_ s: String) -> String {
@@ -266,10 +260,6 @@ struct MainWindow: View {
         .frame(minWidth: 60, maxWidth: 220)
     }
 
-    private func kubeconfigPathForConnection(_ conn: ClusterConnection) -> String? {
-        let parts = conn.id.split(separator: ":", maxSplits: 1)
-        return parts.count > 0 ? String(parts[0]) : nil
-    }
 }
 
 struct ResourceIdentifier: Hashable {
