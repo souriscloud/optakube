@@ -73,12 +73,18 @@ struct AboutView: View {
 }
 
 enum AppInfo {
-    /// Single source of truth — reads from Info.plist at runtime, falls back to hardcoded
-    static let version: String = {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
-    }()
+    /// Single source of truth. release.sh keeps this line and Info.plist in sync.
+    /// Compile-time constant so it works under `swift run` too (no Info.plist there).
+    static let version = "0.3.0"
+
+    /// Derived from version: major*10000 + minor*100 + patch. So 0.2.0 → 200,
+    /// 1.2.3 → 10203. Monotonic for Sparkle's CFBundleVersion comparison without
+    /// any human increment-by-one.
     static let build: String = {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        let parts = version.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 3 else { return "1" }
+        return String(parts[0] * 10000 + parts[1] * 100 + parts[2])
     }()
+
     static let bundleId = "cloud.souris.optakube"
 }

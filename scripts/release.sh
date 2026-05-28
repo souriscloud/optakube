@@ -43,17 +43,32 @@ echo "=== OptaKube Release $VERSION ==="
 # ── 1. Update version ──
 echo ""
 echo "→ [1/10] Updating version..."
+# Build number derived from version: major*10000 + minor*100 + patch.
+# 0.2.0 → 200, 1.2.3 → 10203. Monotonic, no drift, no human increment.
 python3 -c "
-import re
+import re, sys
+v = '$VERSION'
+try:
+    major, minor, patch = (int(x) for x in v.split('.'))
+except ValueError:
+    sys.exit('Version must be MAJOR.MINOR.PATCH (got: ' + v + ')')
+build = major * 10000 + minor * 100 + patch
+
+# Sources/OptaKube/Views/Settings/AboutView.swift — Swift constant
+with open('Sources/OptaKube/Views/Settings/AboutView.swift', 'r') as f:
+    sw = f.read()
+sw = re.sub(r'(static let version = \")[^\"]*(\")', rf'\g<1>{v}\g<2>', sw)
+with open('Sources/OptaKube/Views/Settings/AboutView.swift', 'w') as f:
+    f.write(sw)
+
+# Sources/OptaKube/Info.plist — bundle metadata
 with open('Sources/OptaKube/Info.plist', 'r') as f:
-    content = f.read()
-content = re.sub(r'(<key>CFBundleShortVersionString</key>\s*<string>)[^<]*(</string>)', r'\g<1>$VERSION\g<2>', content)
-m = re.search(r'<key>CFBundleVersion</key>\s*<string>(\d+)</string>', content)
-build = int(m.group(1)) + 1 if m else 1
-content = re.sub(r'(<key>CFBundleVersion</key>\s*<string>)\d+(</string>)', rf'\g<1>{build}\g<2>', content)
+    pl = f.read()
+pl = re.sub(r'(<key>CFBundleShortVersionString</key>\s*<string>)[^<]*(</string>)', rf'\g<1>{v}\g<2>', pl)
+pl = re.sub(r'(<key>CFBundleVersion</key>\s*<string>)\d+(</string>)', rf'\g<1>{build}\g<2>', pl)
 with open('Sources/OptaKube/Info.plist', 'w') as f:
-    f.write(content)
-print(f'  v$VERSION (build {build})')
+    f.write(pl)
+print(f'  v{v} (build {build})')
 "
 BUILD_NUM=$(python3 -c "import re; content=open('Sources/OptaKube/Info.plist').read(); m=re.search(r'<key>CFBundleVersion</key>\s*<string>(\d+)</string>',content); print(m.group(1))")
 

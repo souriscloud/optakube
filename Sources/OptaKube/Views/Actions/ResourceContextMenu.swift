@@ -7,12 +7,17 @@ struct ResourceContextMenu: View {
     let resource: ResourceIdentifier
 
     var body: some View {
-        // Pod-specific: open full-window logs
+        // Pod-specific: open full-window logs and exec
         if resource.resourceType == .pods {
             Button {
                 NotificationCenter.default.post(name: .openFullLogs, object: resource)
             } label: {
                 Label("Open Logs", systemImage: "doc.text")
+            }
+            Button {
+                NotificationCenter.default.post(name: .openPodExec, object: resource)
+            } label: {
+                Label("Exec Shell", systemImage: "terminal")
             }
             Divider()
         }

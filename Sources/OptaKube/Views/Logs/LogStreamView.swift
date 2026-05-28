@@ -199,6 +199,8 @@ struct LogStreamView: View {
             stopAllStreams()
             rateTimer?.cancel()
         }
+        // Reconcile streams when the user toggles a container on/off.
+        .onChange(of: enabledContainerIds) { _, _ in syncStreams() }
         .onKeyPress(.space) {
             insertMark()
             return .handled
@@ -678,23 +680,18 @@ struct LogStreamView: View {
             } else {
                 let s = String(ch)
                 if s == "t" || s == "f" || s == "n" {
-                    // Check for true/false/null
-                    for keyword in ["true", "false", "null"] {
-                        if text[i...].hasPrefix(keyword) {
-                            var attr = AttributedString(keyword)
-                            attr.foregroundColor = .purple
-                            result.append(attr)
-                            i = text.index(i, offsetBy: keyword.count)
-                            break
-                        }
+                    var matched = false
+                    for keyword in ["true", "false", "null"] where text[i...].hasPrefix(keyword) {
+                        var attr = AttributedString(keyword)
+                        attr.foregroundColor = .purple
+                        result.append(attr)
+                        i = text.index(i, offsetBy: keyword.count)
+                        matched = true
+                        break
                     }
-                    if i <= text.index(before: text.endIndex) && (text[i...].hasPrefix("true") || text[i...].hasPrefix("false") || text[i...].hasPrefix("null")) {
-                        continue
-                    }
-                    result.append(AttributedString(s))
-                } else {
-                    result.append(AttributedString(s))
+                    if matched { continue }
                 }
+                result.append(AttributedString(s))
             }
             i = text.index(after: i)
         }
@@ -966,16 +963,9 @@ struct LogStreamView: View {
                                             logCounter += 1
                                             logLines.append(LogLine(id: logCounter, text: msg, timestamp: ts, podName: podName, containerName: containerName ?? "default"))
                                         }
-                                        // Sort all existing lines by timestamp (merges multiple pods' history)
-                                        let marks = logLines.filter(\.isMark)
-                                        var nonMarks = logLines.filter { !$0.isMark }
-                                        nonMarks.sort { $0.timestamp < $1.timestamp }
-                                        // Re-assign sequential IDs after sort
-                                        logCounter = 0
-                                        logLines = (nonMarks + marks).enumerated().map { idx, line in
-                                            LogLine(id: idx + 1, text: line.text, timestamp: line.timestamp, podName: line.podName, containerName: line.containerName, isMark: line.isMark)
-                                        }
-                                        logCounter = logLines.count
+                                        // Sort by timestamp to merge multi-pod history.
+                                        // IDs stay stable so search-match indices remain valid.
+                                        logLines.sort { $0.timestamp < $1.timestamp }
                                         recentCount += sorted.count
                                     }
                                 }
@@ -1001,14 +991,7 @@ struct LogStreamView: View {
                                     logCounter += 1
                                     logLines.append(LogLine(id: logCounter, text: msg, timestamp: ts, podName: podName, containerName: containerName ?? "default"))
                                 }
-                                // Sort all lines by timestamp
-                                var nonMarks = logLines.filter { !$0.isMark }
-                                nonMarks.sort { $0.timestamp < $1.timestamp }
-                                logCounter = 0
-                                logLines = nonMarks.enumerated().map { idx, line in
-                                    LogLine(id: idx + 1, text: line.text, timestamp: line.timestamp, podName: line.podName, containerName: line.containerName, isMark: line.isMark)
-                                }
-                                logCounter = logLines.count
+                                logLines.sort { $0.timestamp < $1.timestamp }
                                 recentCount += sorted.count
                             }
                         }
@@ -1034,6 +1017,20 @@ struct LogStreamView: View {
         for (_, task) in streamTasks { task.cancel() }
         streamTasks.removeAll()
         isStreaming = false
+    }
+
+    /// Bring `streamTasks` in line with the current set of enabled containers.
+    /// Called when the user toggles a container in the picker or bar.
+    private func syncStreams() {
+        let enabled = enabledContainerIds
+        for (key, task) in streamTasks where !enabled.contains(key) {
+            task.cancel()
+            streamTasks.removeValue(forKey: key)
+        }
+        for podName in allPodNames {
+            startStreamForPod(podName)
+        }
+        isStreaming = !streamTasks.isEmpty
     }
 
     private func restartAllStreams() {

@@ -88,6 +88,7 @@ struct AppearanceSettingsView: View {
     @AppStorage("maxLogLines") private var maxLogLines = 10000
     @AppStorage("terminalFontName") private var terminalFontName = ""
     @AppStorage("terminalFontSize") private var terminalFontSize = 13.0
+    @AppStorage("terminalShellPath") private var terminalShellPath = ""
 
     var body: some View {
         Form {
@@ -116,6 +117,18 @@ struct AppearanceSettingsView: View {
 
                 Stepper("Font size: \(Int(terminalFontSize))pt", value: $terminalFontSize, in: 9...24, step: 1)
 
+                HStack {
+                    Text("Shell")
+                    Spacer()
+                    Picker("", selection: $terminalShellPath) {
+                        Text("Auto-detect (prefers fish)").tag("")
+                        ForEach(availableShells, id: \.self) { path in
+                            Text(path).tag(path)
+                        }
+                    }
+                    .frame(width: 250)
+                }
+
                 Text("Restart the terminal for changes to take effect.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -123,6 +136,16 @@ struct AppearanceSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private var availableShells: [String] {
+        let candidates = [
+            "/opt/homebrew/bin/fish", "/usr/local/bin/fish",
+            "/bin/zsh", "/bin/bash", "/bin/sh",
+            "/opt/homebrew/bin/zsh", "/usr/local/bin/zsh",
+            "/opt/homebrew/bin/bash", "/usr/local/bin/bash",
+        ]
+        return candidates.filter { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     private var availableMonoFonts: [String] {

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-28
+
+### Added
+- Exec Shell — right-click any pod → "Exec Shell" runs `kubectl exec -it … -- bash` (with sh fallback) inside the footer terminal, dropping you into the container's shell while keeping your fish/zsh session alive when you exit
+- Footer terminal auto-detects fish at `/opt/homebrew/bin/fish` or `/usr/local/bin/fish` even when login `SHELL` points elsewhere
+- Settings → Appearance → Terminal → Shell: override which shell the footer terminal launches (fish / zsh / bash / sh / auto)
+
+### Changed
+- Build number is now derived from the version (`major*10000 + minor*100 + patch` → 0.3.0 = 300). Single source of truth, no manual increment, no drift between displayed version and bundle metadata
+- `release.sh <version>` updates the Swift constant in `AboutView.swift` and `Info.plist` in one pass; rejects non-`X.Y.Z` input upfront
+- Fish in the footer launches as a real login shell (`--login`, argv0 `-fish`) so login-only conf.d fragments — including AWS env exports — actually run
+
+### Fixed
+- TLS handshake against EKS now surfaces the real failure reason. Previously every TLS failure showed the generic "A TLS error caused the secure connection to fail"; now you see "TLS: server trust for …: <actual reason>" — chain issue, hostname mismatch, parse failure, etc.
+- Server-trust path explicitly calls `SecTrustEvaluateWithError` after pinning the kubeconfig CA, instead of returning an unevaluated trust to URLSession
+- Log viewer: enabling a previously-disabled container actually starts its stream (was a silent no-op); disabling cancels its stream
+- Log viewer: history merge no longer renumbers line IDs, so active search match navigation stays correct after late-arriving history flushes; marks also stay at their original timestamp position instead of being moved to the end
+- Log viewer: JSON syntax highlighter no longer double-prints the first letter of `true` / `false` / `null` (was rendering `truet`, `falsef`, `nulln`)
+- Version display: footer / About now reads from a compiled-in constant instead of `Bundle.main.infoDictionary`, fixing the v0.1.0 fallback under non-bundled runs
+
 ## [0.2.0] - 2026-03-31
 
 ### Added

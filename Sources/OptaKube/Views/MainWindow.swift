@@ -220,6 +220,30 @@ struct MainWindow: View {
                 showFullLogs = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openPodExec)) { notif in
+            guard let rid = notif.object as? ResourceIdentifier else { return }
+            // Open the footer terminal (running fish/zsh/etc.) and type the exec command
+            // into the live shell. Using --context so the active kubectl context in the
+            // shell doesn't matter; -- bash with sh fallback covers minimal images.
+            withAnimation(.easeInOut(duration: 0.15)) { showTerminal = true }
+            let ctx = contextName(forClusterId: rid.clusterId)
+            let ns = rid.namespace ?? "default"
+            // Self-announce so we can tell "command never executed" from "kubectl hung".
+            // Drop --context (fish already use-context'd at startup) to shorten + reduce
+            // surface area. Use bash with sh fallback; stderr stays on so errors show.
+            let banner = "echo '>>> exec \(rid.name) (ns: \(ns)) ...'"
+            let kubectl = "kubectl exec -it -n \(shellQuote(ns)) \(shellQuote(rid.name)) -- sh -c 'command -v bash >/dev/null && exec bash || exec sh'"
+            TerminalBridge.shared.runCommand("\(banner); \(kubectl)")
+        }
+    }
+
+    private func contextName(forClusterId id: String) -> String {
+        let parts = id.split(separator: ":", maxSplits: 1)
+        return parts.count > 1 ? String(parts[1]) : ""
+    }
+
+    private func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private var connectedClustersLabel: some View {

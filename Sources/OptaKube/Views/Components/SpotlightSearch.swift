@@ -461,4 +461,5 @@ extension Notification.Name {
     static let toggleTerminal = Notification.Name("toggleTerminal")
     static let selectResource = Notification.Name("selectResource")
     static let openFullLogs = Notification.Name("openFullLogs")
+    static let openPodExec = Notification.Name("openPodExec")
 }

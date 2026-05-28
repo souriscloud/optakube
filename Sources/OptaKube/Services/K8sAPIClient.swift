@@ -42,6 +42,14 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
     let authProvider: any AuthProvider
     private var clientIdentity: SecIdentity?
     private var clientCertificate: SecCertificate?
+    // Captured when the TLS server-trust delegate rejects so request() can surface the real reason
+    // instead of the generic "A TLS error caused the secure connection to fail" wrapper.
+    private let tlsErrorLock = NSLock()
+    private var _lastTLSError: String?
+    private var lastTLSError: String? {
+        get { tlsErrorLock.lock(); defer { tlsErrorLock.unlock() }; return _lastTLSError }
+        set { tlsErrorLock.lock(); _lastTLSError = newValue; tlsErrorLock.unlock() }
+    }
 
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -654,7 +662,13 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let (data, response) = try await session.data(for: req)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw enrichTransportError(error)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw K8sError.connectionFailed("Invalid response")
         }
@@ -665,6 +679,15 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
         return data
     }
 
+    /// Replace URLSession's opaque TLS wrapper with the specific reason our delegate captured,
+    /// when present. Returns the original error otherwise.
+    private func enrichTransportError(_ error: Error) -> Error {
+        if let tls = lastTLSError {
+            return K8sError.connectionFailed("TLS: \(tls)")
+        }
+        return error
+    }
+
     // MARK: - URLSessionDelegate (TLS)
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
@@ -672,6 +695,7 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
 
         if protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
             guard let serverTrust = protectionSpace.serverTrust else {
+                lastTLSError = "no serverTrust in challenge"
                 return (.cancelAuthenticationChallenge, nil)
             }
 
@@ -680,13 +704,30 @@ final class K8sAPIClient: NSObject, URLSessionDelegate, @unchecked Sendable {
             }
 
             if let caData = connection.certificateAuthorityData {
-                // The CA data from kubeconfig is already base64-decoded, but it's PEM inside
-                let caDER = pemToDER(caData, type: "CERTIFICATE") ?? caData
-                if let caCert = SecCertificateCreateWithData(nil, caDER as CFData) {
-                    SecTrustSetAnchorCertificates(serverTrust, [caCert] as CFArray)
-                    SecTrustSetAnchorCertificatesOnly(serverTrust, true)
+                // The CA data from kubeconfig is already base64-decoded, but it's PEM inside.
+                // Parse out the DER bytes and use it as the only trust anchor (mirroring kubectl).
+                guard let caDER = pemToDER(caData, type: "CERTIFICATE"),
+                      let caCert = SecCertificateCreateWithData(nil, caDER as CFData) else {
+                    lastTLSError = "failed to parse certificate-authority-data from kubeconfig"
+                    return (.cancelAuthenticationChallenge, nil)
                 }
-                return (.useCredential, URLCredential(trust: serverTrust))
+
+                SecTrustSetAnchorCertificates(serverTrust, [caCert] as CFArray)
+                SecTrustSetAnchorCertificatesOnly(serverTrust, true)
+
+                // Evaluate explicitly so we can capture and surface the real reason on failure.
+                // URLSession will otherwise just report -1200 ("A TLS error caused the secure
+                // connection to fail") with no detail, which is what the user reported.
+                var trustError: CFError?
+                if SecTrustEvaluateWithError(serverTrust, &trustError) {
+                    lastTLSError = nil
+                    return (.useCredential, URLCredential(trust: serverTrust))
+                }
+
+                let reason = trustError.map { CFErrorCopyDescription($0) as String } ?? "unknown"
+                let host = protectionSpace.host
+                lastTLSError = "server trust for \(host): \(reason)"
+                return (.cancelAuthenticationChallenge, nil)
             }
 
             return (.performDefaultHandling, nil)
