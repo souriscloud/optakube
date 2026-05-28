@@ -1,62 +1,33 @@
 # Next session plan
 
-Shipped: **v0.4.2** (https://github.com/souriscloud/optakube/releases/tag/v0.4.2)
-What's deferred from this iteration, ordered by ship-ability.
+Shipped: **v0.4.3** (https://github.com/souriscloud/optakube/releases/tag/v0.4.3)
+Open PR: **#1** (https://github.com/souriscloud/optakube/pull/1) — AppViewModel file split, awaiting real-cluster validation.
 
 ---
 
-## ✅ DONE in 0.4.2
+## ✅ DONE
 
-- **`K8sAPIClient` actor-ish refactor.** Did **option B-variant**, not the full-actor A: extracted a small `TLSTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable` that owns the TLS trust state + client identity/cert + the `NSLock`-guarded `lastTLSError`. `K8sAPIClient` itself is now a plain `final class K8sAPIClient: Sendable` with only `let` state — no `@unchecked`, no lock, no `NSObject`. This avoided turning ~15 call sites into `await`. The `@objc(URLSession:didReceiveChallenge:completionHandler:)` workaround is preserved verbatim inside the delegate.
-- **`typedWatch` perf.** Added `WatchCoalescer<T>` actor + `applyWatchBatch(...)` `@MainActor` method in `AppViewModel`. Trailing-edge 100ms debounce → one `@Observable` mutation per burst window instead of per event; batch apply uses an id→index map (O(batch + items)). The old `contains`/`firstIndex`/`removeAll` linear scans are gone.
-- ⚠️ **Not yet validated against a real busy cluster.** The coalescer is correct by construction (final drain guarantees no stale tail) but nobody has watched a 200-pod startup storm through it yet. If anything looks off, the suspect is `applyWatchBatch` delete-reindex or the `flushTask` lifetime in `typedWatch`.
+### v0.4.2
+- **`K8sAPIClient` is now `Sendable` (no `@unchecked`, no lock).** Extracted a small `TLSTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable` that owns TLS trust + client identity/cert + the `NSLock`-guarded `lastTLSError`. The client itself has only `let` state now. The `@objc(URLSession:didReceiveChallenge:completionHandler:)` workaround is preserved verbatim in the delegate.
+- **Watch coalescing.** `WatchCoalescer<T>` actor + `applyWatchBatch(...)` (now in `AppViewModel+Watch.swift`). Trailing-edge 100ms debounce → one `@Observable` mutation per burst window; batch apply uses an id→index map.
 
----
+### v0.4.3
+- **Events tab is live via a watch** (`EventsListView.swift`), not a 5s poll. Lists once for the initial render + captures resourceVersion, then watches from there with relist-on-410 + exponential backoff. New client methods: `listEventsForResourceWithVersion`, `watchEventsForResource`, and a shared `streamWatch(watchURL:)` factored out of `watch(...)`.
 
-## 0.4.4 — events watch (kill the 5s poll)
-
-**Lowest priority — the poll works.** Only do this if you want the resource savings; not worth risking a working feature otherwise.
-
-- `Sources/OptaKube/Views/Detail/EventsListView.swift:97` polls every 5s while visible
-- Kubernetes DOES expose a watch on `/api/v1/namespaces/{ns}/events?fieldSelector=involvedObject.uid={uid}`
-- Add `ResourceType.events` case-or-equivalent watch URL builder; reuse `typedWatch` if event model conforms cleanly to `K8sResource`
-- Keep `EventBadgeStore` semantics identical — drop-in replacement of the polling loop
-- Saves 12 requests/min per open detail view; matters when 5+ tabs are open
+### PR #1 — AppViewModel file split (NOT yet merged)
+- 610-line `AppViewModel.swift` → 4 files (core / +Resources / +Watch / +Persistence), still one `@Observable` type. Pure code movement, build-clean, every method verified present exactly once.
+- **⚠️ Needs `swift run` against a real cluster before merge.** Behavior-neutral by construction but touches the live-update hot path.
 
 ---
 
-## 0.5.0 — architecture refactor (multi-hour, own session)
+## Deliberately NOT done (and why) — the deeper 0.5.0
 
-**Big enough to warrant its own beta cut.** Use `--beta` flag on release.sh.
+After reading the actual coupling, I recommend **against** these unless a concrete maintenance pain shows up. Recorded here so the reasoning isn't lost:
 
-### Split AppViewModel (564 lines, god-object)
+- **Split into separate `@Observable` stores** (ConnectionStore / ResourceCache / etc.): the 20 resource dicts are read directly by views (`viewModel.pods`) *and* written by the watch engine via `ReferenceWritableKeyPath<AppViewModel, …>`. Moving them breaks dozens of view read-sites + every keyPath write-site, needs `.environment()` injection at every `WindowGroup` (missed injection = runtime crash), and can't be validated without launching every window against a live cluster. High churn, zero user benefit.
+- **Convert singletons to environment injection** (`PortForwardManager`, `ClusterCustomizationStore`, `RecentsStore`, `EventBadgeStore`): these are an idiomatic SwiftUI pattern here. Converting is taste-driven, adds crash risk, and buys only testability — not worth it for this app.
 
-Suggested decomposition:
-- `ConnectionStore` — `activeClients: [String: K8sAPIClient]`, connect/disconnect, watch task ownership
-- `NamespaceStore` — selected namespace per cluster, namespace lists
-- `ResourceCache` — the typed arrays (pods, deployments, etc.) keyed by clusterId
-- `AutoRefreshCoordinator` — the timer + which clusters need polling fallback
-
-Wire these as `@Observable` types passed via `.environment(...)` from `MainWindow`. **Don't make them singletons.** Per-window instances; that's the whole point.
-
-### Reduce singletons
-
-Current `.shared`s and what to do with each:
-
-| Singleton | Verdict |
-|---|---|
-| `ClusterStore.shared` (`AppViewModel.swift:8`) | **Keep.** Genuinely app-wide kubeconfig state. |
-| `WindowManager.shared` | **Keep.** App-level window registry. |
-| `UpdateController.shared` | **Keep.** Wraps Sparkle which is itself singleton-shaped. |
-| `PortForwardManager.shared` | **Keep but inject via environment.** App-wide but views should `@Environment(PortForwardManager.self)` it. |
-| `ClusterCustomizationStore.shared` | **Inject via environment.** Same shape as above. |
-| `RecentsStore.shared` | **Inject via environment.** |
-| `NotificationsService.shared` | **Keep.** Cross-cluster, app-scoped. |
-| `EventBadgeStore.shared` (`EventsListView.swift:7`) | **Move into AppViewModel split (ResourceCache).** It's per-cluster state. |
-| `TerminalBridge.shared` | **Keep.** Tied to the single footer terminal. |
-| `LogWindowHolder.shared` (`LogStreamView.swift:1164`) | **Keep.** Tied to NSWindow lifecycle. |
-
-The wins are surgical (~3 stores), not a wholesale anti-singleton crusade.
+The file split in PR #1 captures the real, safe core ("the god-object file is hard to navigate") without the risk.
 
 ---
 
@@ -73,8 +44,9 @@ The wins are surgical (~3 stores), not a wholesale anti-singleton crusade.
 
 ```bash
 git log --oneline -5
-git tag --sort=-v:refname | head -3
+git tag --sort=-v:refname | head -3   # latest should be v0.4.3
+gh pr view 1                          # the AppViewModel split, pending validation
 swift build  # confirm clean build before touching anything
 ```
 
-If `swift build` is clean and the last tag is `v0.4.1`, start on 0.4.2 (actor refactor).
+First thing on resume: validate PR #1 against a real cluster (`git checkout refactor/split-appviewmodel && swift run`), then merge or report issues. After that, the remaining backlog below is the menu.
