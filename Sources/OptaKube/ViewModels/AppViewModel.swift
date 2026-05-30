@@ -72,6 +72,9 @@ final class AppViewModel: Identifiable {
     var selectedNamespace: String? = nil
     var availableNamespaces: [String: [String]] = [:]
     var searchText: String = ""
+    /// Kubernetes label selector typed into the list filter (e.g. `app=web,tier!=db`).
+    /// Ephemeral per window — narrows the visible rows on top of `searchText`.
+    var labelFilter: String = ""
 
     // CRD support
     var discoveredCRDs: [CRDDefinition] = []
@@ -137,6 +140,21 @@ final class AppViewModel: Identifiable {
 
     var activeConnections: [ClusterConnection] {
         store.availableConnections.filter { selectedClusterIds.contains($0.id) }
+    }
+
+    // MARK: - Saved Views
+
+    /// Jump to a pinned view: set namespace, resource type, and label filter, then
+    /// refresh. Leaves CRD/overview modes and reuses the existing connection.
+    @MainActor
+    func applySavedView(_ view: SavedView) {
+        guard let type = view.resolvedType else { return }
+        selectedCRD = nil
+        showClusterOverview = false
+        selectedNamespace = view.namespace
+        labelFilter = view.labelFilter
+        selectedResourceType = type
+        Task { await refresh() }
     }
 
     // MARK: - Cluster Discovery (delegates to store)

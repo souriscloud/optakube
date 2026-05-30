@@ -15,6 +15,7 @@ struct ResourceDetailView: View {
     @State private var applyError: String?
     @State private var applySuccess = false
     @State private var isApplying = false
+    @State private var showDiff = false
 
     struct TabItem: Identifiable, Hashable {
         let id: String
@@ -469,11 +470,12 @@ struct ResourceDetailView: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Apply") {
-                    applyChanges()
+                Button("Review & Apply") {
+                    applyError = nil
+                    showDiff = true
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isApplying)
+                .disabled(isApplying || editContent == yamlContent)
             }
             .padding(.horizontal)
             .padding(.vertical, 4)
@@ -487,6 +489,17 @@ struct ResourceDetailView: View {
                 .font(.system(.body, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(4)
+        }
+        .sheet(isPresented: $showDiff) {
+            YAMLDiffView(
+                current: yamlContent,
+                edited: editContent,
+                onConfirm: {
+                    showDiff = false
+                    applyChanges()
+                },
+                onCancel: { showDiff = false }
+            )
         }
     }
 

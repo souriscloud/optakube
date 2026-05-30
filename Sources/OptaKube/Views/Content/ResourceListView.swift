@@ -5,7 +5,8 @@ struct ResourceListView: View {
     @Binding var selectedResource: ResourceIdentifier?
 
     var body: some View {
-        Group {
+        @Bindable var viewModel = viewModel
+        return Group {
             if let crd = viewModel.selectedCRD {
                 // CRD custom resource view
                 crdResourceView(crd: crd)
@@ -76,7 +77,7 @@ struct ResourceListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(viewModel.selectedCRD?.displayName ?? viewModel.selectedResourceType.displayName)
         .safeAreaInset(edge: .top) {
-            if !allItems.isEmpty || viewModel.isLoading {
+            if viewModel.selectedCRD == nil, !allItems.isEmpty || viewModel.isLoading || !viewModel.labelFilter.isEmpty {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(.green)
@@ -105,6 +106,9 @@ struct ResourceListView: View {
 
                     Spacer()
 
+                    labelFilterField(filter: $viewModel.labelFilter)
+                    pinButton
+
                     if viewModel.isLoading {
                         ProgressView()
                             .controlSize(.small)
@@ -115,6 +119,79 @@ struct ResourceListView: View {
                 .background(.bar)
             }
         }
+    }
+
+    // MARK: - Label Filter + Pin
+
+    @ViewBuilder
+    private func labelFilterField(filter: Binding<String>) -> some View {
+        let value = filter.wrappedValue
+        let valid = value.isEmpty || LabelFilter(value).isValid
+        HStack(spacing: 4) {
+            Image(systemName: "tag")
+                .font(.caption2)
+                .foregroundStyle(valid ? Color.secondary : Color.red)
+            TextField("label=value", text: filter)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .frame(width: 180)
+            if !value.isEmpty {
+                Button {
+                    filter.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.quaternary.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(valid ? Color.clear : Color.red.opacity(0.6), lineWidth: 1)
+        )
+        .help("Filter by Kubernetes label selector, e.g. app=web,tier!=db")
+    }
+
+    private var pinButton: some View {
+        let store = SavedViewsStore.shared
+        let existing = store.existing(
+            namespace: viewModel.selectedNamespace,
+            resourceType: viewModel.selectedResourceType.rawValue,
+            labelFilter: viewModel.labelFilter
+        )
+        return Button {
+            if let existing {
+                store.remove(existing.id)
+            } else {
+                store.add(SavedView(
+                    name: savedViewName,
+                    namespace: viewModel.selectedNamespace,
+                    resourceType: viewModel.selectedResourceType.rawValue,
+                    labelFilter: viewModel.labelFilter
+                ))
+            }
+        } label: {
+            Image(systemName: existing != nil ? "star.fill" : "star")
+                .font(.caption)
+                .foregroundStyle(existing != nil ? Color.yellow : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(existing != nil ? "Unpin this view" : "Pin this view to Favorites")
+    }
+
+    /// A readable default name for a pinned view: "ns · Type" plus the filter if set.
+    private var savedViewName: String {
+        let ns = viewModel.selectedNamespace ?? "all-ns"
+        var name = "\(ns) · \(viewModel.selectedResourceType.displayName)"
+        if !viewModel.labelFilter.isEmpty {
+            name += " (\(viewModel.labelFilter))"
+        }
+        return name
     }
 
     // MARK: - Pod Table
@@ -434,9 +511,11 @@ struct ResourceListView: View {
         namespaced: Bool = true,
         build: (ResourceIdentifier, T, String) -> Row
     ) -> [Row] where Row.ID == ResourceIdentifier {
+        let selector = LabelFilter(viewModel.labelFilter)
         var rows: [Row] = []
         for clusterId in viewModel.selectedClusterIds {
             for item in viewModel[keyPath: keyPath][clusterId] ?? [] {
+                guard selector.matches(item.metadata.labels) else { continue }
                 let rid = ResourceIdentifier(
                     clusterId: clusterId,
                     resourceType: type,
@@ -458,13 +537,16 @@ struct ResourceListView: View {
     }
 
     private var allItems: [ResourceIdentifier] {
+        let selector = LabelFilter(viewModel.labelFilter)
         var items: [ResourceIdentifier] = []
         for clusterId in viewModel.selectedClusterIds {
             let type = viewModel.selectedResourceType
             func add<T: K8sResource>(_ kp: KeyPath<AppViewModel, [String: [T]]>, namespaced: Bool = true) {
-                items += (viewModel[keyPath: kp][clusterId] ?? []).map {
-                    ResourceIdentifier(clusterId: clusterId, resourceType: type, name: $0.name, namespace: namespaced ? $0.metadata.namespace : nil)
-                }
+                items += (viewModel[keyPath: kp][clusterId] ?? [])
+                    .filter { selector.matches($0.metadata.labels) }
+                    .map {
+                        ResourceIdentifier(clusterId: clusterId, resourceType: type, name: $0.name, namespace: namespaced ? $0.metadata.namespace : nil)
+                    }
             }
             switch type {
             case .pods: add(\.pods)

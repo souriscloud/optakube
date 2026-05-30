@@ -5,6 +5,7 @@ struct SidebarView: View {
     @State private var collapsedCategories: Set<String> = []
     @State private var collapsedCRDGroups: Set<String> = []
     @State private var sidebarSelection: ResourceType?
+    private var savedViews = SavedViewsStore.shared
 
     var body: some View {
         List(selection: $sidebarSelection) {
@@ -23,6 +24,35 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
                     .listRowBackground(viewModel.showClusterOverview ? Color.accentColor.opacity(0.15) : Color.clear)
+                }
+            }
+
+            // Favorites — pinned views (namespace + type + label filter)
+            if !savedViews.views.isEmpty {
+                Section("Favorites") {
+                    ForEach(savedViews.views) { view in
+                        Button {
+                            sidebarSelection = nil
+                            viewModel.applySavedView(view)
+                        } label: {
+                            HStack {
+                                Image(systemName: "star.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.yellow)
+                                Text(view.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 1)
+                        .contextMenu {
+                            Button("Remove from Favorites", role: .destructive) {
+                                savedViews.remove(view.id)
+                            }
+                        }
+                    }
                 }
             }
 

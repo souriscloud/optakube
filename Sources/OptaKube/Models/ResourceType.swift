@@ -143,6 +143,19 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// The bare API group name (no version), as the authorization API expects it:
+    /// `""` for core (`/api/v1`), otherwise the group from `/apis/<group>/<version>`.
+    /// e.g. `.deployments` → `"apps"`, `.pods` → `""`, `.ingresses` → `"networking.k8s.io"`.
+    var apiGroupName: String {
+        // apiGroup is "/api/v1" (core) or "/apis/<group>/<version>".
+        let parts = apiGroup.split(separator: "/").map(String.init)
+        // ["api", "v1"] → core; ["apis", "apps", "v1"] → "apps"
+        if parts.first == "apis", parts.count >= 2 {
+            return parts[1]
+        }
+        return ""
+    }
+
     func listURL(server: String, namespace: String?) -> URL? {
         var path: String
         if isNamespaced, let ns = namespace {

@@ -23,5 +23,10 @@ let package = Package(
             exclude: ["Info.plist"],
             resources: [.copy("Resources/AppIcon.icns")]
         ),
+        .testTarget(
+            name: "OptaKubeTests",
+            dependencies: ["OptaKube"],
+            path: "Tests/OptaKubeTests"
+        ),
     ]
 )

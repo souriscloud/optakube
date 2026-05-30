@@ -558,6 +558,47 @@ final class K8sAPIClient: Sendable {
         _ = try await request(url: podURL, method: "PATCH", body: body, contentType: "application/strategic-merge-patch+json")
     }
 
+    // MARK: - Access Review (can-i)
+
+    /// Result of a single `can-i` probe.
+    struct AccessReviewResult: Sendable {
+        let allowed: Bool
+        let denied: Bool
+        let reason: String?
+    }
+
+    /// Ask the API server whether the *current* kubeconfig identity may perform `verb`
+    /// on a resource, via `SelfSubjectAccessReview` (authorization.k8s.io/v1). This is
+    /// the `kubectl auth can-i` mechanism — it always works for the connected user and
+    /// needs no extra RBAC, since everyone may review their own access.
+    func selfSubjectAccessReview(verb: String, group: String, resource: String, namespace: String?) async throws -> AccessReviewResult {
+        guard let url = URL(string: connection.server + "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews") else {
+            throw K8sError.invalidURL
+        }
+        var resourceAttributes: [String: Any] = [
+            "verb": verb,
+            "group": group,
+            "resource": resource
+        ]
+        if let namespace { resourceAttributes["namespace"] = namespace }
+        let payload: [String: Any] = [
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": ["resourceAttributes": resourceAttributes]
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await request(url: url, method: "POST", body: body, contentType: "application/json")
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? [String: Any] else {
+            return AccessReviewResult(allowed: false, denied: false, reason: "Unparseable response")
+        }
+        let allowed = status["allowed"] as? Bool ?? false
+        let denied = status["denied"] as? Bool ?? false
+        let reason = status["reason"] as? String
+        return AccessReviewResult(allowed: allowed, denied: denied, reason: reason)
+    }
+
     func getServerVersion() async throws -> String {
         guard let url = URL(string: connection.server + "/version") else {
             throw K8sError.invalidURL

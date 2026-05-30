@@ -6,6 +6,7 @@ struct MainWindow: View {
     @State private var showDetail: Bool = false
     @State private var showTerminal: Bool = false
     @State private var showSpotlight: Bool = false
+    @State private var showAccessReview: Bool = false
     @State private var showFullLogs: Bool = false
     @State private var fullLogsResource: ResourceIdentifier?
     @State private var dismissedError: String?
@@ -154,6 +155,14 @@ struct MainWindow: View {
                 NamespacePicker()
 
                 Button {
+                    showAccessReview = true
+                } label: {
+                    Image(systemName: "lock.shield")
+                }
+                .help("Access review — what can these credentials do? (can-i)")
+                .disabled(viewModel.activeClients.isEmpty)
+
+                Button {
                     Task { await viewModel.refresh() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
@@ -190,6 +199,10 @@ struct MainWindow: View {
         }
         .onChange(of: viewModel.selectedResourceType) { _, _ in viewModel.saveState() }
         .onChange(of: viewModel.selectedNamespace) { _, _ in viewModel.saveState() }
+        .sheet(isPresented: $showAccessReview) {
+            AccessReviewView()
+                .environment(viewModel)
+        }
         .overlay {
             if showSpotlight {
                 // Dimmed backdrop

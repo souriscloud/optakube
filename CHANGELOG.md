@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-30
+
+### Added
+- **Label-selector filter.** A filter field in the resource list toolbar accepts a Kubernetes label selector (`app=web,tier!=db,env in (prod,stage)`, plus existence `release` / non-existence `!canary`) and narrows rows live, on top of the existing name search. Multiple clauses are ANDed; an invalid clause is flagged (red) without hiding everything, and the bar stays visible when a filter matches zero rows so you can always clear it
+- **Saved views (Favorites).** Pin the current namespace + resource type + label filter from the toolbar star; pinned views appear in a Favorites section in the sidebar and jump straight back with one click. Stored globally so they're available in every window/cluster
+- **Access review (`can-i`).** A new toolbar button runs `SelfSubjectAccessReview` for the connected credentials across every resource type × common verb (get/list/watch/create/update/delete) in the selected namespace, rendered as a check/✗ matrix — `kubectl auth can-i --list` as a readable grid. Always works for the current user (no extra RBAC needed)
+- **Diff before YAML apply.** Editing a resource's YAML and hitting *Review & Apply* now shows a unified line diff (added/removed, with context) for confirmation before the `PUT` lands, instead of applying blind
+
+### Internal
+- First test target (`OptaKubeTests`, 32 tests): label-selector parsing/matching, `ResourceType` API-group + URL construction, `SavedView`/`WindowState` codable round-trips, and the YAML unified-diff engine. Run with `swift test`
+
 ## [0.4.5] - 2026-05-29
 
 ### Fixed
