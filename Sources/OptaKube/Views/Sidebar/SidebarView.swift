@@ -16,6 +16,7 @@ struct SidebarView: View {
                         sidebarSelection = nil
                         viewModel.showClusterOverview = true
                         viewModel.showHelmReleases = false
+                        viewModel.showClusterEvents = false
                         viewModel.selectedCRD = nil
                     } label: {
                         ClusterRow(
@@ -28,22 +29,35 @@ struct SidebarView: View {
                 }
             }
 
-            // Helm releases (separate browser, not a built-in resource type)
-            Section("Helm") {
+            // Tools — browsers that aren't built-in resource types
+            Section("Tools") {
                 Button {
                     sidebarSelection = nil
                     viewModel.showHelm()
                 } label: {
                     HStack {
-                        Image(systemName: "shippingbox")
-                            .foregroundStyle(.secondary)
-                        Text("Releases")
+                        Image(systemName: "shippingbox").foregroundStyle(.secondary)
+                        Text("Helm Releases")
                         Spacer()
                     }
                 }
                 .buttonStyle(.plain)
                 .padding(.vertical, 1)
                 .listRowBackground(viewModel.showHelmReleases ? Color.accentColor.opacity(0.15) : Color.clear)
+
+                Button {
+                    sidebarSelection = nil
+                    viewModel.showEvents()
+                } label: {
+                    HStack {
+                        Image(systemName: "bell").foregroundStyle(.secondary)
+                        Text("Events")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 1)
+                .listRowBackground(viewModel.showClusterEvents ? Color.accentColor.opacity(0.15) : Color.clear)
             }
 
             // Favorites — pinned views (namespace + type + label filter)
@@ -127,6 +141,7 @@ struct SidebarView: View {
             viewModel.selectedCRD = nil
             viewModel.showClusterOverview = false
             viewModel.showHelmReleases = false
+            viewModel.showClusterEvents = false
             if viewModel.selectedResourceType != type {
                 viewModel.selectedResourceType = type
                 Task { await viewModel.refresh() }

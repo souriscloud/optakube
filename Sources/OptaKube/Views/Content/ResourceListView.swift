@@ -5,6 +5,10 @@ struct ResourceListView: View {
     @Binding var selectedResource: ResourceIdentifier?
     /// Custom-resource instance currently open in the YAML editor sheet.
     @State private var crdEditItem: GenericK8sResource?
+    /// Multi-row selection. Drives the inspector when exactly one row is selected, and
+    /// the bulk-action bar when two or more are.
+    @State private var multiSelection = Set<ResourceIdentifier>()
+    @State private var showBulkDeleteConfirm = false
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -80,6 +84,11 @@ struct ResourceListView: View {
                 case .storageClasses: storageClassTable
                 case .resourceQuotas: resourceQuotaTable
                 case .podDisruptionBudgets: podDisruptionBudgetTable
+                case .limitRanges: limitRangeTable
+                case .priorityClasses: priorityClassTable
+                case .leases: leaseTable
+                case .mutatingWebhookConfigurations: mutatingWebhookTable
+                case .validatingWebhookConfigurations: validatingWebhookTable
                 }
             }
         }
@@ -127,6 +136,87 @@ struct ResourceListView: View {
                 .padding(.vertical, 4)
                 .background(.bar)
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if multiSelection.count >= 2 { bulkActionBar }
+        }
+        // Keep the single-selection inspector in sync: it shows only when exactly one
+        // row is selected; 0 or 2+ selected clears it.
+        .onChange(of: multiSelection) { _, sel in
+            selectedResource = sel.count == 1 ? sel.first : nil
+        }
+        // Reflect an externally-driven selection (e.g. Spotlight navigation) back into
+        // the table's selection set, without bouncing the onChange above.
+        .onChange(of: selectedResource) { _, rid in
+            if let rid {
+                if multiSelection != [rid] { multiSelection = [rid] }
+            } else if multiSelection.count == 1 {
+                multiSelection.removeAll()
+            }
+        }
+        .confirmationDialog(bulkDeletePrompt, isPresented: $showBulkDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete \(multiSelection.count)", role: .destructive) { bulkDelete() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    // MARK: - Bulk Actions
+
+    /// Selected types that support `kubectl rollout restart`.
+    private var restartableSelection: [ResourceIdentifier] {
+        multiSelection.filter { [.deployments, .statefulSets, .daemonSets].contains($0.resourceType) }
+    }
+
+    private var bulkDeletePrompt: String {
+        "Delete \(multiSelection.count) selected resource\(multiSelection.count == 1 ? "" : "s")?"
+    }
+
+    private var bulkActionBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checklist").foregroundStyle(.tint)
+            Text("\(multiSelection.count) selected").font(.callout.weight(.medium))
+            Spacer()
+            if !restartableSelection.isEmpty {
+                Button {
+                    bulkRestart()
+                } label: {
+                    Label("Restart \(restartableSelection.count)", systemImage: "arrow.clockwise")
+                }
+            }
+            Button(role: .destructive) {
+                showBulkDeleteConfirm = true
+            } label: {
+                Label("Delete \(multiSelection.count)", systemImage: "trash")
+            }
+            .tint(.red)
+            Button("Clear") { multiSelection.removeAll() }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func bulkDelete() {
+        let targets = Array(multiSelection)
+        Task {
+            for rid in targets {
+                guard let client = viewModel.activeClients[rid.clusterId] else { continue }
+                try? await client.delete(resourceType: rid.resourceType, name: rid.name, namespace: rid.namespace)
+            }
+            await MainActor.run { multiSelection.removeAll() }
+            await viewModel.refresh()
+        }
+    }
+
+    private func bulkRestart() {
+        let targets = restartableSelection
+        Task {
+            for rid in targets {
+                guard let client = viewModel.activeClients[rid.clusterId] else { continue }
+                try? await client.restart(resourceType: rid.resourceType, name: rid.name, namespace: rid.namespace)
+            }
+            await MainActor.run { multiSelection.removeAll() }
+            await viewModel.refresh()
         }
     }
 
@@ -206,7 +296,7 @@ struct ResourceListView: View {
     // MARK: - Pod Table
 
     private var podTable: some View {
-        Table(filteredRows(from: \.pods, type: .pods) { PodRow(id: $0, pod: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.pods, type: .pods) { PodRow(id: $0, pod: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.pod.resourceStatus) }.width(24)
             TableColumn("Name") { item in
                 Text(item.pod.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0))
@@ -240,7 +330,7 @@ struct ResourceListView: View {
     // MARK: - Deployment Table
 
     private var deploymentTable: some View {
-        Table(filteredRows(from: \.deployments, type: .deployments) { DeploymentRow(id: $0, deployment: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.deployments, type: .deployments) { DeploymentRow(id: $0, deployment: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.deployment.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.deployment.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.deployment.namespace).width(min: 80, ideal: 120)
@@ -254,7 +344,7 @@ struct ResourceListView: View {
     // MARK: - Service Table
 
     private var serviceTable: some View {
-        Table(filteredRows(from: \.services, type: .services) { ServiceRow(id: $0, service: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.services, type: .services) { ServiceRow(id: $0, service: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.service.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.service.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.service.namespace).width(min: 80, ideal: 120)
@@ -268,7 +358,7 @@ struct ResourceListView: View {
     // MARK: - Node Table
 
     private var nodeTable: some View {
-        Table(filteredRows(from: \.nodes, type: .nodes, namespaced: false) { NodeRow(id: $0, node: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.nodes, type: .nodes, namespaced: false) { NodeRow(id: $0, node: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.node.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.node.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Roles") { item in Text(item.node.roles) }.width(min: 80, ideal: 100)
@@ -294,7 +384,7 @@ struct ResourceListView: View {
     // MARK: - StatefulSet Table
 
     private var statefulSetTable: some View {
-        Table(filteredRows(from: \.statefulSets, type: .statefulSets) { StatefulSetRow(id: $0, statefulSet: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.statefulSets, type: .statefulSets) { StatefulSetRow(id: $0, statefulSet: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.statefulSet.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.statefulSet.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.statefulSet.namespace).width(min: 80, ideal: 120)
@@ -306,7 +396,7 @@ struct ResourceListView: View {
     // MARK: - DaemonSet Table
 
     private var daemonSetTable: some View {
-        Table(filteredRows(from: \.daemonSets, type: .daemonSets) { DaemonSetRow(id: $0, daemonSet: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.daemonSets, type: .daemonSets) { DaemonSetRow(id: $0, daemonSet: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.daemonSet.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.daemonSet.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.daemonSet.namespace).width(min: 80, ideal: 120)
@@ -319,7 +409,7 @@ struct ResourceListView: View {
     // MARK: - ReplicaSet Table
 
     private var replicaSetTable: some View {
-        Table(filteredRows(from: \.replicaSets, type: .replicaSets) { ReplicaSetRow(id: $0, replicaSet: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.replicaSets, type: .replicaSets) { ReplicaSetRow(id: $0, replicaSet: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.replicaSet.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.replicaSet.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.replicaSet.namespace).width(min: 80, ideal: 120)
@@ -331,7 +421,7 @@ struct ResourceListView: View {
     // MARK: - Job Table
 
     private var jobTable: some View {
-        Table(filteredRows(from: \.jobs, type: .jobs) { JobRow(id: $0, job: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.jobs, type: .jobs) { JobRow(id: $0, job: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.job.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.job.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.job.namespace).width(min: 80, ideal: 120)
@@ -344,7 +434,7 @@ struct ResourceListView: View {
     // MARK: - CronJob Table
 
     private var cronJobTable: some View {
-        Table(filteredRows(from: \.cronJobs, type: .cronJobs) { CronJobRow(id: $0, cronJob: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.cronJobs, type: .cronJobs) { CronJobRow(id: $0, cronJob: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.cronJob.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.cronJob.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.cronJob.namespace).width(min: 80, ideal: 120)
@@ -361,7 +451,7 @@ struct ResourceListView: View {
     // MARK: - ConfigMap Table
 
     private var configMapTable: some View {
-        Table(filteredRows(from: \.configMaps, type: .configMaps) { ConfigMapRow(id: $0, configMap: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.configMaps, type: .configMaps) { ConfigMapRow(id: $0, configMap: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.configMap.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.configMap.namespace).width(min: 80, ideal: 120)
@@ -373,7 +463,7 @@ struct ResourceListView: View {
     // MARK: - Secret Table
 
     private var secretTable: some View {
-        Table(filteredRows(from: \.secrets, type: .secrets) { SecretRow(id: $0, secret: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.secrets, type: .secrets) { SecretRow(id: $0, secret: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.secret.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.secret.namespace).width(min: 80, ideal: 120)
@@ -386,7 +476,7 @@ struct ResourceListView: View {
     // MARK: - Ingress Table
 
     private var ingressTable: some View {
-        Table(filteredRows(from: \.ingresses, type: .ingresses) { IngressRow(id: $0, ingress: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.ingresses, type: .ingresses) { IngressRow(id: $0, ingress: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.ingress.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.ingress.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.ingress.namespace).width(min: 80, ideal: 120)
@@ -404,7 +494,7 @@ struct ResourceListView: View {
     // MARK: - IngressClass Table
 
     private var ingressClassTable: some View {
-        Table(filteredRows(from: \.ingressClasses, type: .ingressClasses, namespaced: false) { IngressClassRow(id: $0, ingressClass: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.ingressClasses, type: .ingressClasses, namespaced: false) { IngressClassRow(id: $0, ingressClass: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.ingressClass.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.ingressClass.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Controller", value: \.ingressClass.controller).width(min: 150, ideal: 250)
@@ -419,7 +509,7 @@ struct ResourceListView: View {
     // MARK: - PersistentVolume Table
 
     private var persistentVolumeTable: some View {
-        Table(filteredRows(from: \.persistentVolumes, type: .persistentVolumes, namespaced: false) { PersistentVolumeRow(id: $0, persistentVolume: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.persistentVolumes, type: .persistentVolumes, namespaced: false) { PersistentVolumeRow(id: $0, persistentVolume: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.persistentVolume.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.persistentVolume.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Capacity", value: \.persistentVolume.capacity).width(70)
@@ -434,7 +524,7 @@ struct ResourceListView: View {
     // MARK: - PersistentVolumeClaim Table
 
     private var persistentVolumeClaimTable: some View {
-        Table(filteredRows(from: \.persistentVolumeClaims, type: .persistentVolumeClaims) { PersistentVolumeClaimRow(id: $0, persistentVolumeClaim: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.persistentVolumeClaims, type: .persistentVolumeClaims) { PersistentVolumeClaimRow(id: $0, persistentVolumeClaim: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.persistentVolumeClaim.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.persistentVolumeClaim.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.persistentVolumeClaim.namespace).width(min: 80, ideal: 120)
@@ -450,7 +540,7 @@ struct ResourceListView: View {
     // MARK: - NetworkPolicy Table
 
     private var networkPolicyTable: some View {
-        Table(filteredRows(from: \.networkPolicies, type: .networkPolicies) { NetworkPolicyRow(id: $0, networkPolicy: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.networkPolicies, type: .networkPolicies) { NetworkPolicyRow(id: $0, networkPolicy: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.networkPolicy.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.networkPolicy.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.networkPolicy.namespace).width(min: 80, ideal: 120)
@@ -463,7 +553,7 @@ struct ResourceListView: View {
     // MARK: - ServiceAccount Table
 
     private var serviceAccountTable: some View {
-        Table(filteredRows(from: \.serviceAccounts, type: .serviceAccounts) { ServiceAccountRow(id: $0, serviceAccount: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.serviceAccounts, type: .serviceAccounts) { ServiceAccountRow(id: $0, serviceAccount: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.serviceAccount.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.serviceAccount.namespace).width(min: 80, ideal: 120)
@@ -475,7 +565,7 @@ struct ResourceListView: View {
     // MARK: - HorizontalPodAutoscaler Table
 
     private var hpaTable: some View {
-        Table(filteredRows(from: \.horizontalPodAutoscalers, type: .horizontalPodAutoscalers) { HPARow(id: $0, hpa: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.horizontalPodAutoscalers, type: .horizontalPodAutoscalers) { HPARow(id: $0, hpa: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.hpa.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.hpa.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.hpa.namespace).width(min: 80, ideal: 120)
@@ -491,7 +581,7 @@ struct ResourceListView: View {
     // MARK: - Namespace Table
 
     private var namespaceTable: some View {
-        Table(filteredRows(from: \.namespaces, type: .namespaces, namespaced: false) { NamespaceRow(id: $0, ns: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.namespaces, type: .namespaces, namespaced: false) { NamespaceRow(id: $0, ns: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.ns.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.ns.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Status", value: \.ns.phase).width(80)
@@ -502,7 +592,7 @@ struct ResourceListView: View {
     // MARK: - Endpoints Table
 
     private var endpointsTable: some View {
-        Table(filteredRows(from: \.endpoints, type: .endpoints) { EndpointsRow(id: $0, endpoints: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.endpoints, type: .endpoints) { EndpointsRow(id: $0, endpoints: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.endpoints.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.endpoints.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.endpoints.namespace).width(min: 80, ideal: 120)
@@ -515,7 +605,7 @@ struct ResourceListView: View {
     // MARK: - Role Table
 
     private var roleTable: some View {
-        Table(filteredRows(from: \.roles, type: .roles) { RoleRow(id: $0, role: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.roles, type: .roles) { RoleRow(id: $0, role: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.role.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
             TableColumn("Namespace", value: \.role.namespace).width(min: 80, ideal: 120)
@@ -528,7 +618,7 @@ struct ResourceListView: View {
     // MARK: - RoleBinding Table
 
     private var roleBindingTable: some View {
-        Table(filteredRows(from: \.roleBindings, type: .roleBindings) { RoleBindingRow(id: $0, roleBinding: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.roleBindings, type: .roleBindings) { RoleBindingRow(id: $0, roleBinding: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.roleBinding.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 220)
             TableColumn("Namespace", value: \.roleBinding.namespace).width(min: 80, ideal: 120)
@@ -541,7 +631,7 @@ struct ResourceListView: View {
     // MARK: - ClusterRole Table
 
     private var clusterRoleTable: some View {
-        Table(filteredRows(from: \.clusterRoles, type: .clusterRoles, namespaced: false) { ClusterRoleRow(id: $0, clusterRole: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.clusterRoles, type: .clusterRoles, namespaced: false) { ClusterRoleRow(id: $0, clusterRole: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.clusterRole.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 300)
             TableColumn("Rules") { item in Text("\(item.clusterRole.rulesCount)").monospacedDigit() }.width(45)
@@ -553,7 +643,7 @@ struct ResourceListView: View {
     // MARK: - ClusterRoleBinding Table
 
     private var clusterRoleBindingTable: some View {
-        Table(filteredRows(from: \.clusterRoleBindings, type: .clusterRoleBindings, namespaced: false) { ClusterRoleBindingRow(id: $0, clusterRoleBinding: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.clusterRoleBindings, type: .clusterRoleBindings, namespaced: false) { ClusterRoleBindingRow(id: $0, clusterRoleBinding: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.clusterRoleBinding.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 260)
             TableColumn("Role") { item in Text(item.clusterRoleBinding.roleRefDisplay).font(.caption) }.width(min: 100, ideal: 200)
@@ -565,7 +655,7 @@ struct ResourceListView: View {
     // MARK: - StorageClass Table
 
     private var storageClassTable: some View {
-        Table(filteredRows(from: \.storageClasses, type: .storageClasses, namespaced: false) { StorageClassRow(id: $0, storageClass: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.storageClasses, type: .storageClasses, namespaced: false) { StorageClassRow(id: $0, storageClass: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in
                 HStack(spacing: 4) {
@@ -586,7 +676,7 @@ struct ResourceListView: View {
     // MARK: - ResourceQuota Table
 
     private var resourceQuotaTable: some View {
-        Table(filteredRows(from: \.resourceQuotas, type: .resourceQuotas) { ResourceQuotaRow(id: $0, resourceQuota: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.resourceQuotas, type: .resourceQuotas) { ResourceQuotaRow(id: $0, resourceQuota: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
             TableColumn("Name") { item in Text(item.resourceQuota.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 120, ideal: 180)
             TableColumn("Namespace", value: \.resourceQuota.namespace).width(min: 80, ideal: 120)
@@ -599,7 +689,7 @@ struct ResourceListView: View {
     // MARK: - PodDisruptionBudget Table
 
     private var podDisruptionBudgetTable: some View {
-        Table(filteredRows(from: \.podDisruptionBudgets, type: .podDisruptionBudgets) { PodDisruptionBudgetRow(id: $0, podDisruptionBudget: $1, clusterId: $2) }, selection: $selectedResource) {
+        Table(filteredRows(from: \.podDisruptionBudgets, type: .podDisruptionBudgets) { PodDisruptionBudgetRow(id: $0, podDisruptionBudget: $1, clusterId: $2) }, selection: $multiSelection) {
             TableColumn("") { item in ResourceStatusBadge(status: item.podDisruptionBudget.resourceStatus) }.width(24)
             TableColumn("Name") { item in Text(item.podDisruptionBudget.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 130, ideal: 200)
             TableColumn("Namespace", value: \.podDisruptionBudget.namespace).width(min: 80, ideal: 120)
@@ -608,6 +698,72 @@ struct ResourceListView: View {
             TableColumn("Allowed") { item in Text("\(item.podDisruptionBudget.allowedDisruptions)").monospacedDigit() }.width(60)
             TableColumn("Healthy") { item in Text(item.podDisruptionBudget.healthyDisplay).monospacedDigit() }.width(60)
             TableColumn("Age") { item in Text(item.podDisruptionBudget.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - LimitRange Table
+
+    private var limitRangeTable: some View {
+        Table(filteredRows(from: \.limitRanges, type: .limitRanges) { LimitRangeRow(id: $0, limitRange: $1, clusterId: $2) }, selection: $multiSelection) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.limitRange.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
+            TableColumn("Namespace", value: \.limitRange.namespace).width(min: 80, ideal: 120)
+            TableColumn("Types") { item in Text(item.limitRange.limitTypes).font(.caption) }.width(min: 100, ideal: 200)
+            TableColumn("Age") { item in Text(item.limitRange.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - PriorityClass Table
+
+    private var priorityClassTable: some View {
+        Table(filteredRows(from: \.priorityClasses, type: .priorityClasses, namespaced: false) { PriorityClassRow(id: $0, priorityClass: $1, clusterId: $2) }, selection: $multiSelection) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in
+                HStack(spacing: 4) {
+                    Text(item.priorityClass.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0))
+                    if item.priorityClass.isGlobalDefault {
+                        Text("default").font(.system(size: 9)).padding(.horizontal, 4).padding(.vertical, 1).background(.green.opacity(0.2)).foregroundStyle(.green).clipShape(Capsule())
+                    }
+                }
+                .contextMenu { ResourceContextMenu(resource: item.id) }
+            }.width(min: 150, ideal: 250)
+            TableColumn("Value") { item in Text(item.priorityClass.valueDisplay).monospacedDigit() }.width(90)
+            TableColumn("Age") { item in Text(item.priorityClass.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - Lease Table
+
+    private var leaseTable: some View {
+        Table(filteredRows(from: \.leases, type: .leases) { LeaseRow(id: $0, lease: $1, clusterId: $2) }, selection: $multiSelection) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.lease.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
+            TableColumn("Namespace", value: \.lease.namespace).width(min: 80, ideal: 120)
+            TableColumn("Holder") { item in Text(item.lease.holder).font(.caption).lineLimit(1).truncationMode(.middle) }.width(min: 120, ideal: 240)
+            TableColumn("Duration") { item in Text(item.lease.durationDisplay).font(.caption).monospacedDigit() }.width(70)
+            TableColumn("Age") { item in Text(item.lease.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - MutatingWebhookConfiguration Table
+
+    private var mutatingWebhookTable: some View {
+        Table(filteredRows(from: \.mutatingWebhookConfigurations, type: .mutatingWebhookConfigurations, namespaced: false) { MutatingWebhookRow(id: $0, config: $1, clusterId: $2) }, selection: $multiSelection) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.config.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 180, ideal: 320)
+            TableColumn("Webhooks") { item in Text("\(item.config.webhookCount)").monospacedDigit() }.width(70)
+            TableColumn("Age") { item in Text(item.config.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - ValidatingWebhookConfiguration Table
+
+    private var validatingWebhookTable: some View {
+        Table(filteredRows(from: \.validatingWebhookConfigurations, type: .validatingWebhookConfigurations, namespaced: false) { ValidatingWebhookRow(id: $0, config: $1, clusterId: $2) }, selection: $multiSelection) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.config.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 180, ideal: 320)
+            TableColumn("Webhooks") { item in Text("\(item.config.webhookCount)").monospacedDigit() }.width(70)
+            TableColumn("Age") { item in Text(item.config.age).foregroundStyle(.secondary) }.width(50)
         }
     }
 
@@ -684,6 +840,11 @@ struct ResourceListView: View {
             case .storageClasses: add(\.storageClasses, namespaced: false)
             case .resourceQuotas: add(\.resourceQuotas)
             case .podDisruptionBudgets: add(\.podDisruptionBudgets)
+            case .limitRanges: add(\.limitRanges)
+            case .priorityClasses: add(\.priorityClasses, namespaced: false)
+            case .leases: add(\.leases)
+            case .mutatingWebhookConfigurations: add(\.mutatingWebhookConfigurations, namespaced: false)
+            case .validatingWebhookConfigurations: add(\.validatingWebhookConfigurations, namespaced: false)
             }
         }
         if !viewModel.searchText.isEmpty {
@@ -948,3 +1109,8 @@ struct ClusterRoleBindingRow: Identifiable, ResourceRow { let id: ResourceIdenti
 struct StorageClassRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let storageClass: StorageClass; let clusterId: String; var resourceId: ResourceIdentifier { id } }
 struct ResourceQuotaRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let resourceQuota: ResourceQuota; let clusterId: String; var resourceId: ResourceIdentifier { id } }
 struct PodDisruptionBudgetRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let podDisruptionBudget: PodDisruptionBudget; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct LimitRangeRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let limitRange: LimitRange; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct PriorityClassRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let priorityClass: PriorityClass; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct LeaseRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let lease: Lease; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct MutatingWebhookRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let config: MutatingWebhookConfiguration; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct ValidatingWebhookRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let config: ValidatingWebhookConfiguration; let clusterId: String; var resourceId: ResourceIdentifier { id } }

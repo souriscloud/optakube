@@ -119,10 +119,19 @@ final class AppViewModel: Identifiable {
     var storageClasses: [String: [StorageClass]] = [:]
     var resourceQuotas: [String: [ResourceQuota]] = [:]
     var podDisruptionBudgets: [String: [PodDisruptionBudget]] = [:]
+    var limitRanges: [String: [LimitRange]] = [:]
+    var priorityClasses: [String: [PriorityClass]] = [:]
+    var leases: [String: [Lease]] = [:]
+    var mutatingWebhookConfigurations: [String: [MutatingWebhookConfiguration]] = [:]
+    var validatingWebhookConfigurations: [String: [ValidatingWebhookConfiguration]] = [:]
 
     // Helm releases (all stored revisions, per cluster)
     var showHelmReleases: Bool = false
     var helmReleases: [String: [HelmRelease]] = [:]
+
+    // Cluster-wide events browser
+    var showClusterEvents: Bool = false
+    var clusterEvents: [String: [K8sEvent]] = [:]
 
     // Cluster overview
     var showClusterOverview: Bool = false
@@ -160,8 +169,35 @@ final class AppViewModel: Identifiable {
     func showHelm() {
         selectedCRD = nil
         showClusterOverview = false
+        showClusterEvents = false
         showHelmReleases = true
         Task { await loadHelmReleases() }
+    }
+
+    /// Switch the content area to the cluster-wide events browser and load them.
+    @MainActor
+    func showEvents() {
+        selectedCRD = nil
+        showClusterOverview = false
+        showHelmReleases = false
+        showClusterEvents = true
+        Task { await loadClusterEvents() }
+    }
+
+    @MainActor
+    func loadClusterEvents() async {
+        isLoading = true
+        for clusterId in selectedClusterIds {
+            guard let client = activeClients[clusterId] else { continue }
+            do {
+                let events = try await client.listEvents(namespace: selectedNamespace)
+                clusterEvents[clusterId] = events
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+        isLoading = false
+        lastRefreshTime = Date()
     }
 
     @MainActor
@@ -190,6 +226,7 @@ final class AppViewModel: Identifiable {
         selectedCRD = nil
         showClusterOverview = false
         showHelmReleases = false
+        showClusterEvents = false
         selectedNamespace = view.namespace
         labelFilter = view.labelFilter
         selectedResourceType = type

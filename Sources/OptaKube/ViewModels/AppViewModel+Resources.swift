@@ -34,6 +34,7 @@ extension AppViewModel {
         selectedCRD = crd
         showClusterOverview = false
         showHelmReleases = false
+        showClusterEvents = false
         Task { await refresh() }
     }
 
@@ -41,6 +42,7 @@ extension AppViewModel {
         selectedCRD = nil
         showClusterOverview = false
         showHelmReleases = false
+        showClusterEvents = false
         selectedResourceType = type
     }
 
@@ -137,6 +139,21 @@ extension AppViewModel {
             case .podDisruptionBudgets:
                 let r = try await client.listWithVersion(PodDisruptionBudget.self, resourceType: .podDisruptionBudgets, namespace: ns)
                 await MainActor.run { podDisruptionBudgets[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .limitRanges:
+                let r = try await client.listWithVersion(LimitRange.self, resourceType: .limitRanges, namespace: ns)
+                await MainActor.run { limitRanges[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .priorityClasses:
+                let r = try await client.listWithVersion(PriorityClass.self, resourceType: .priorityClasses)
+                await MainActor.run { priorityClasses[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .leases:
+                let r = try await client.listWithVersion(Lease.self, resourceType: .leases, namespace: ns)
+                await MainActor.run { leases[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .mutatingWebhookConfigurations:
+                let r = try await client.listWithVersion(MutatingWebhookConfiguration.self, resourceType: .mutatingWebhookConfigurations)
+                await MainActor.run { mutatingWebhookConfigurations[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .validatingWebhookConfigurations:
+                let r = try await client.listWithVersion(ValidatingWebhookConfiguration.self, resourceType: .validatingWebhookConfigurations)
+                await MainActor.run { validatingWebhookConfigurations[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
             }
         } catch {
             await MainActor.run { errorMessage = error.localizedDescription }
@@ -209,7 +226,13 @@ extension AppViewModel {
         storageClasses.removeValue(forKey: clusterId)
         resourceQuotas.removeValue(forKey: clusterId)
         podDisruptionBudgets.removeValue(forKey: clusterId)
+        limitRanges.removeValue(forKey: clusterId)
+        priorityClasses.removeValue(forKey: clusterId)
+        leases.removeValue(forKey: clusterId)
+        mutatingWebhookConfigurations.removeValue(forKey: clusterId)
+        validatingWebhookConfigurations.removeValue(forKey: clusterId)
         helmReleases.removeValue(forKey: clusterId)
+        clusterEvents.removeValue(forKey: clusterId)
         customResources.removeValue(forKey: clusterId)
         podMetricsCache.removeValue(forKey: clusterId)
         nodeMetricsCache.removeValue(forKey: clusterId)

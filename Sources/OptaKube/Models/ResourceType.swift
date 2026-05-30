@@ -35,6 +35,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
     case storageClasses
     case resourceQuotas
     case podDisruptionBudgets
+    case limitRanges
+    case priorityClasses
+    case leases
+    case mutatingWebhookConfigurations
+    case validatingWebhookConfigurations
 
     var id: String { rawValue }
 
@@ -67,6 +72,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .storageClasses: return "StorageClasses"
         case .resourceQuotas: return "ResourceQuotas"
         case .podDisruptionBudgets: return "PodDisruptionBudgets"
+        case .limitRanges: return "LimitRanges"
+        case .priorityClasses: return "PriorityClasses"
+        case .leases: return "Leases"
+        case .mutatingWebhookConfigurations: return "MutatingWebhookConfigurations"
+        case .validatingWebhookConfigurations: return "ValidatingWebhookConfigurations"
         }
     }
 
@@ -99,6 +109,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .storageClasses: return "internaldrive"
         case .resourceQuotas: return "slider.horizontal.3"
         case .podDisruptionBudgets: return "bolt.shield"
+        case .limitRanges: return "ruler"
+        case .priorityClasses: return "arrow.up.arrow.down.square"
+        case .leases: return "clock.arrow.circlepath"
+        case .mutatingWebhookConfigurations: return "arrow.triangle.branch"
+        case .validatingWebhookConfigurations: return "checkmark.shield"
         }
     }
 
@@ -109,10 +124,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .services, .ingresses, .ingressClasses, .networkPolicies, .endpoints:
             return .networking
         case .configMaps, .secrets, .persistentVolumes, .persistentVolumeClaims,
-             .resourceQuotas, .podDisruptionBudgets:
+             .resourceQuotas, .podDisruptionBudgets, .limitRanges:
             return .config
         case .nodes, .serviceAccounts, .horizontalPodAutoscalers, .namespaces,
-             .roles, .roleBindings, .clusterRoles, .clusterRoleBindings, .storageClasses:
+             .roles, .roleBindings, .clusterRoles, .clusterRoleBindings, .storageClasses,
+             .priorityClasses, .leases, .mutatingWebhookConfigurations, .validatingWebhookConfigurations:
             return .cluster
         }
     }
@@ -137,6 +153,14 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
             return "/api/v1"
         case .podDisruptionBudgets:
             return "/apis/policy/v1"
+        case .limitRanges:
+            return "/api/v1"
+        case .priorityClasses:
+            return "/apis/scheduling.k8s.io/v1"
+        case .leases:
+            return "/apis/coordination.k8s.io/v1"
+        case .mutatingWebhookConfigurations, .validatingWebhookConfigurations:
+            return "/apis/admissionregistration.k8s.io/v1"
         }
     }
 
@@ -169,13 +193,19 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .storageClasses: return "storageclasses"
         case .resourceQuotas: return "resourcequotas"
         case .podDisruptionBudgets: return "poddisruptionbudgets"
+        case .limitRanges: return "limitranges"
+        case .priorityClasses: return "priorityclasses"
+        case .leases: return "leases"
+        case .mutatingWebhookConfigurations: return "mutatingwebhookconfigurations"
+        case .validatingWebhookConfigurations: return "validatingwebhookconfigurations"
         }
     }
 
     var isNamespaced: Bool {
         switch self {
         case .nodes, .persistentVolumes, .ingressClasses, .namespaces,
-             .clusterRoles, .clusterRoleBindings, .storageClasses:
+             .clusterRoles, .clusterRoleBindings, .storageClasses,
+             .priorityClasses, .mutatingWebhookConfigurations, .validatingWebhookConfigurations:
             return false
         default:
             return true
@@ -213,6 +243,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .storageClasses: return "StorageClass"
         case .resourceQuotas: return "ResourceQuota"
         case .podDisruptionBudgets: return "PodDisruptionBudget"
+        case .limitRanges: return "LimitRange"
+        case .priorityClasses: return "PriorityClass"
+        case .leases: return "Lease"
+        case .mutatingWebhookConfigurations: return "MutatingWebhookConfiguration"
+        case .validatingWebhookConfigurations: return "ValidatingWebhookConfiguration"
         }
     }
 

@@ -110,6 +110,8 @@ struct MainWindow: View {
                     ClusterOverview()
                 } else if viewModel.showHelmReleases {
                     HelmReleasesView()
+                } else if viewModel.showClusterEvents {
+                    EventsBrowserView()
                 } else {
                     if showDetail, let resource = selectedResource {
                         HSplitView {

@@ -174,7 +174,9 @@ struct ResourceDetailView: View {
                 case .ingresses, .ingressClasses, .persistentVolumes, .persistentVolumeClaims,
                      .networkPolicies, .serviceAccounts, .horizontalPodAutoscalers, .namespaces, .endpoints,
                      .roles, .roleBindings, .clusterRoles, .clusterRoleBindings,
-                     .storageClasses, .resourceQuotas, .podDisruptionBudgets:
+                     .storageClasses, .resourceQuotas, .podDisruptionBudgets,
+                     .limitRanges, .priorityClasses, .leases,
+                     .mutatingWebhookConfigurations, .validatingWebhookConfigurations:
                     Text("Detail view not yet available for \(resource.resourceType.displayName)")
                         .foregroundStyle(.secondary)
                 }
