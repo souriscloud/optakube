@@ -172,7 +172,9 @@ struct ResourceDetailView: View {
                 case .secrets:
                     if let secret = findResource(\.secrets) { SecretDetailContent(secret: secret) }
                 case .ingresses, .ingressClasses, .persistentVolumes, .persistentVolumeClaims,
-                     .networkPolicies, .serviceAccounts, .horizontalPodAutoscalers, .namespaces, .endpoints:
+                     .networkPolicies, .serviceAccounts, .horizontalPodAutoscalers, .namespaces, .endpoints,
+                     .roles, .roleBindings, .clusterRoles, .clusterRoleBindings,
+                     .storageClasses, .resourceQuotas, .podDisruptionBudgets:
                     Text("Detail view not yet available for \(resource.resourceType.displayName)")
                         .foregroundStyle(.secondary)
                 }

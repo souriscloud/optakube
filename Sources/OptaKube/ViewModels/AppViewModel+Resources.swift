@@ -33,12 +33,14 @@ extension AppViewModel {
     func selectCRD(_ crd: CRDDefinition) {
         selectedCRD = crd
         showClusterOverview = false
+        showHelmReleases = false
         Task { await refresh() }
     }
 
     func selectBuiltInType(_ type: ResourceType) {
         selectedCRD = nil
         showClusterOverview = false
+        showHelmReleases = false
         selectedResourceType = type
     }
 
@@ -114,6 +116,27 @@ extension AppViewModel {
             case .endpoints:
                 let r = try await client.listWithVersion(Endpoints.self, resourceType: .endpoints, namespace: ns)
                 await MainActor.run { endpoints[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .roles:
+                let r = try await client.listWithVersion(Role.self, resourceType: .roles, namespace: ns)
+                await MainActor.run { roles[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .roleBindings:
+                let r = try await client.listWithVersion(RoleBinding.self, resourceType: .roleBindings, namespace: ns)
+                await MainActor.run { roleBindings[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .clusterRoles:
+                let r = try await client.listWithVersion(ClusterRole.self, resourceType: .clusterRoles)
+                await MainActor.run { clusterRoles[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .clusterRoleBindings:
+                let r = try await client.listWithVersion(ClusterRoleBinding.self, resourceType: .clusterRoleBindings)
+                await MainActor.run { clusterRoleBindings[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .storageClasses:
+                let r = try await client.listWithVersion(StorageClass.self, resourceType: .storageClasses)
+                await MainActor.run { storageClasses[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .resourceQuotas:
+                let r = try await client.listWithVersion(ResourceQuota.self, resourceType: .resourceQuotas, namespace: ns)
+                await MainActor.run { resourceQuotas[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
+            case .podDisruptionBudgets:
+                let r = try await client.listWithVersion(PodDisruptionBudget.self, resourceType: .podDisruptionBudgets, namespace: ns)
+                await MainActor.run { podDisruptionBudgets[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
             }
         } catch {
             await MainActor.run { errorMessage = error.localizedDescription }
@@ -179,6 +202,14 @@ extension AppViewModel {
         horizontalPodAutoscalers.removeValue(forKey: clusterId)
         namespaces.removeValue(forKey: clusterId)
         endpoints.removeValue(forKey: clusterId)
+        roles.removeValue(forKey: clusterId)
+        roleBindings.removeValue(forKey: clusterId)
+        clusterRoles.removeValue(forKey: clusterId)
+        clusterRoleBindings.removeValue(forKey: clusterId)
+        storageClasses.removeValue(forKey: clusterId)
+        resourceQuotas.removeValue(forKey: clusterId)
+        podDisruptionBudgets.removeValue(forKey: clusterId)
+        helmReleases.removeValue(forKey: clusterId)
         customResources.removeValue(forKey: clusterId)
         podMetricsCache.removeValue(forKey: clusterId)
         nodeMetricsCache.removeValue(forKey: clusterId)

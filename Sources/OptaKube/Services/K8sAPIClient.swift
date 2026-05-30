@@ -243,6 +243,65 @@ final class K8sAPIClient: Sendable {
         return items
     }
 
+    /// List Helm v3 releases by reading their backing `owner=helm` Secrets and decoding
+    /// each. Returns every stored revision (the caller groups by release for history).
+    func listHelmReleases(namespace: String?) async throws -> [HelmRelease] {
+        var urlStr = connection.server + "/api/v1"
+        if let ns = namespace { urlStr += "/namespaces/\(ns)" }
+        urlStr += "/secrets?labelSelector=owner%3Dhelm"
+        guard let url = URL(string: urlStr) else { throw K8sError.invalidURL }
+        let data = try await request(url: url)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = json["items"] as? [[String: Any]] else { return [] }
+        var releases: [HelmRelease] = []
+        for item in items {
+            let ns = (item["metadata"] as? [String: Any])?["namespace"] as? String ?? ""
+            guard let rel = (item["data"] as? [String: Any])?["release"] as? String,
+                  let decoded = HelmRelease.decode(fromSecretReleaseB64: rel, namespace: ns) else { continue }
+            releases.append(decoded)
+        }
+        return releases
+    }
+
+    /// Server-side apply a manifest (create-or-update) at a pre-resolved resource path
+    /// like `/apis/apps/v1/namespaces/default/deployments/web`. Uses
+    /// `application/apply-patch+yaml` with a stable field manager, so re-applying an
+    /// edited manifest converges rather than erroring on conflict.
+    func serverSideApply(path: String, yaml: String) async throws {
+        guard let url = URL(string: connection.server + path + "?fieldManager=optakube&force=true") else {
+            throw K8sError.invalidURL
+        }
+        let body = yaml.data(using: .utf8) ?? Data()
+        _ = try await request(url: url, method: "PATCH", body: body, contentType: "application/apply-patch+yaml")
+    }
+
+    /// Fetch one custom resource's raw manifest (for the YAML editor).
+    func getRawCustomResource(crd: CRDDefinition, name: String, namespace: String?) async throws -> Data {
+        guard var url = crd.listURL(server: connection.server, namespace: crd.isNamespaced ? namespace : nil) else {
+            throw K8sError.invalidURL
+        }
+        url.appendPathComponent(name)
+        return try await request(url: url)
+    }
+
+    /// Replace (PUT) a custom resource with an edited manifest.
+    func replaceCustomResource(crd: CRDDefinition, name: String, namespace: String?, body: Data) async throws {
+        guard var url = crd.listURL(server: connection.server, namespace: crd.isNamespaced ? namespace : nil) else {
+            throw K8sError.invalidURL
+        }
+        url.appendPathComponent(name)
+        _ = try await request(url: url, method: "PUT", body: body, contentType: "application/json")
+    }
+
+    /// Delete a custom resource.
+    func deleteCustomResource(crd: CRDDefinition, name: String, namespace: String?) async throws {
+        guard var url = crd.listURL(server: connection.server, namespace: crd.isNamespaced ? namespace : nil) else {
+            throw K8sError.invalidURL
+        }
+        url.appendPathComponent(name)
+        _ = try await request(url: url, method: "DELETE")
+    }
+
     // MARK: - Events
 
     func listEvents(namespace: String?, fieldSelector: String? = nil) async throws -> [K8sEvent] {

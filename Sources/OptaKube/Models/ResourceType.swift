@@ -28,6 +28,13 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
     case serviceAccounts
     case horizontalPodAutoscalers
     case namespaces
+    case roles
+    case roleBindings
+    case clusterRoles
+    case clusterRoleBindings
+    case storageClasses
+    case resourceQuotas
+    case podDisruptionBudgets
 
     var id: String { rawValue }
 
@@ -53,6 +60,13 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .serviceAccounts: return "ServiceAccounts"
         case .horizontalPodAutoscalers: return "HorizontalPodAutoscalers"
         case .namespaces: return "Namespaces"
+        case .roles: return "Roles"
+        case .roleBindings: return "RoleBindings"
+        case .clusterRoles: return "ClusterRoles"
+        case .clusterRoleBindings: return "ClusterRoleBindings"
+        case .storageClasses: return "StorageClasses"
+        case .resourceQuotas: return "ResourceQuotas"
+        case .podDisruptionBudgets: return "PodDisruptionBudgets"
         }
     }
 
@@ -78,6 +92,13 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .serviceAccounts: return "person.crop.circle"
         case .horizontalPodAutoscalers: return "arrow.up.arrow.down"
         case .namespaces: return "folder"
+        case .roles: return "shield.lefthalf.filled"
+        case .roleBindings: return "link.circle"
+        case .clusterRoles: return "shield"
+        case .clusterRoleBindings: return "link.circle.fill"
+        case .storageClasses: return "internaldrive"
+        case .resourceQuotas: return "slider.horizontal.3"
+        case .podDisruptionBudgets: return "bolt.shield"
         }
     }
 
@@ -87,9 +108,11 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
             return .workloads
         case .services, .ingresses, .ingressClasses, .networkPolicies, .endpoints:
             return .networking
-        case .configMaps, .secrets, .persistentVolumes, .persistentVolumeClaims:
+        case .configMaps, .secrets, .persistentVolumes, .persistentVolumeClaims,
+             .resourceQuotas, .podDisruptionBudgets:
             return .config
-        case .nodes, .serviceAccounts, .horizontalPodAutoscalers, .namespaces:
+        case .nodes, .serviceAccounts, .horizontalPodAutoscalers, .namespaces,
+             .roles, .roleBindings, .clusterRoles, .clusterRoleBindings, .storageClasses:
             return .cluster
         }
     }
@@ -106,6 +129,14 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
             return "/apis/networking.k8s.io/v1"
         case .horizontalPodAutoscalers:
             return "/apis/autoscaling/v2"
+        case .roles, .roleBindings, .clusterRoles, .clusterRoleBindings:
+            return "/apis/rbac.authorization.k8s.io/v1"
+        case .storageClasses:
+            return "/apis/storage.k8s.io/v1"
+        case .resourceQuotas:
+            return "/api/v1"
+        case .podDisruptionBudgets:
+            return "/apis/policy/v1"
         }
     }
 
@@ -131,15 +162,57 @@ enum ResourceType: String, CaseIterable, Identifiable, Hashable {
         case .serviceAccounts: return "serviceaccounts"
         case .horizontalPodAutoscalers: return "horizontalpodautoscalers"
         case .namespaces: return "namespaces"
+        case .roles: return "roles"
+        case .roleBindings: return "rolebindings"
+        case .clusterRoles: return "clusterroles"
+        case .clusterRoleBindings: return "clusterrolebindings"
+        case .storageClasses: return "storageclasses"
+        case .resourceQuotas: return "resourcequotas"
+        case .podDisruptionBudgets: return "poddisruptionbudgets"
         }
     }
 
     var isNamespaced: Bool {
         switch self {
-        case .nodes, .persistentVolumes, .ingressClasses, .namespaces:
+        case .nodes, .persistentVolumes, .ingressClasses, .namespaces,
+             .clusterRoles, .clusterRoleBindings, .storageClasses:
             return false
         default:
             return true
+        }
+    }
+
+    /// The singular Kubernetes Kind (PascalCase), as it appears in a manifest's
+    /// `kind:` field. Used to resolve a pasted manifest back to its resource path.
+    var kind: String {
+        switch self {
+        case .pods: return "Pod"
+        case .deployments: return "Deployment"
+        case .statefulSets: return "StatefulSet"
+        case .daemonSets: return "DaemonSet"
+        case .replicaSets: return "ReplicaSet"
+        case .jobs: return "Job"
+        case .cronJobs: return "CronJob"
+        case .services: return "Service"
+        case .ingresses: return "Ingress"
+        case .ingressClasses: return "IngressClass"
+        case .networkPolicies: return "NetworkPolicy"
+        case .endpoints: return "Endpoints"
+        case .configMaps: return "ConfigMap"
+        case .secrets: return "Secret"
+        case .persistentVolumes: return "PersistentVolume"
+        case .persistentVolumeClaims: return "PersistentVolumeClaim"
+        case .nodes: return "Node"
+        case .serviceAccounts: return "ServiceAccount"
+        case .horizontalPodAutoscalers: return "HorizontalPodAutoscaler"
+        case .namespaces: return "Namespace"
+        case .roles: return "Role"
+        case .roleBindings: return "RoleBinding"
+        case .clusterRoles: return "ClusterRole"
+        case .clusterRoleBindings: return "ClusterRoleBinding"
+        case .storageClasses: return "StorageClass"
+        case .resourceQuotas: return "ResourceQuota"
+        case .podDisruptionBudgets: return "PodDisruptionBudget"
         }
     }
 

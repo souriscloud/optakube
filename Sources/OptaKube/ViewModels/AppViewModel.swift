@@ -112,6 +112,17 @@ final class AppViewModel: Identifiable {
     var horizontalPodAutoscalers: [String: [HorizontalPodAutoscaler]] = [:]
     var namespaces: [String: [Namespace]] = [:]
     var endpoints: [String: [Endpoints]] = [:]
+    var roles: [String: [Role]] = [:]
+    var roleBindings: [String: [RoleBinding]] = [:]
+    var clusterRoles: [String: [ClusterRole]] = [:]
+    var clusterRoleBindings: [String: [ClusterRoleBinding]] = [:]
+    var storageClasses: [String: [StorageClass]] = [:]
+    var resourceQuotas: [String: [ResourceQuota]] = [:]
+    var podDisruptionBudgets: [String: [PodDisruptionBudget]] = [:]
+
+    // Helm releases (all stored revisions, per cluster)
+    var showHelmReleases: Bool = false
+    var helmReleases: [String: [HelmRelease]] = [:]
 
     // Cluster overview
     var showClusterOverview: Bool = false
@@ -142,6 +153,33 @@ final class AppViewModel: Identifiable {
         store.availableConnections.filter { selectedClusterIds.contains($0.id) }
     }
 
+    // MARK: - Helm
+
+    /// Switch the content area to the Helm releases browser and load them.
+    @MainActor
+    func showHelm() {
+        selectedCRD = nil
+        showClusterOverview = false
+        showHelmReleases = true
+        Task { await loadHelmReleases() }
+    }
+
+    @MainActor
+    func loadHelmReleases() async {
+        isLoading = true
+        for clusterId in selectedClusterIds {
+            guard let client = activeClients[clusterId] else { continue }
+            do {
+                let releases = try await client.listHelmReleases(namespace: selectedNamespace)
+                helmReleases[clusterId] = releases
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+        isLoading = false
+        lastRefreshTime = Date()
+    }
+
     // MARK: - Saved Views
 
     /// Jump to a pinned view: set namespace, resource type, and label filter, then
@@ -151,6 +189,7 @@ final class AppViewModel: Identifiable {
         guard let type = view.resolvedType else { return }
         selectedCRD = nil
         showClusterOverview = false
+        showHelmReleases = false
         selectedNamespace = view.namespace
         labelFilter = view.labelFilter
         selectedResourceType = type

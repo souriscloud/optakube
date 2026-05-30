@@ -15,6 +15,7 @@ struct SidebarView: View {
                     Button {
                         sidebarSelection = nil
                         viewModel.showClusterOverview = true
+                        viewModel.showHelmReleases = false
                         viewModel.selectedCRD = nil
                     } label: {
                         ClusterRow(
@@ -25,6 +26,24 @@ struct SidebarView: View {
                     .buttonStyle(.plain)
                     .listRowBackground(viewModel.showClusterOverview ? Color.accentColor.opacity(0.15) : Color.clear)
                 }
+            }
+
+            // Helm releases (separate browser, not a built-in resource type)
+            Section("Helm") {
+                Button {
+                    sidebarSelection = nil
+                    viewModel.showHelm()
+                } label: {
+                    HStack {
+                        Image(systemName: "shippingbox")
+                            .foregroundStyle(.secondary)
+                        Text("Releases")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 1)
+                .listRowBackground(viewModel.showHelmReleases ? Color.accentColor.opacity(0.15) : Color.clear)
             }
 
             // Favorites — pinned views (namespace + type + label filter)
@@ -107,6 +126,7 @@ struct SidebarView: View {
             guard let type = newValue else { return }
             viewModel.selectedCRD = nil
             viewModel.showClusterOverview = false
+            viewModel.showHelmReleases = false
             if viewModel.selectedResourceType != type {
                 viewModel.selectedResourceType = type
                 Task { await viewModel.refresh() }

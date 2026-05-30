@@ -7,6 +7,7 @@ struct MainWindow: View {
     @State private var showTerminal: Bool = false
     @State private var showSpotlight: Bool = false
     @State private var showAccessReview: Bool = false
+    @State private var showCreateResource: Bool = false
     @State private var showFullLogs: Bool = false
     @State private var fullLogsResource: ResourceIdentifier?
     @State private var dismissedError: String?
@@ -107,6 +108,8 @@ struct MainWindow: View {
                     }
                 } else if viewModel.showClusterOverview {
                     ClusterOverview()
+                } else if viewModel.showHelmReleases {
+                    HelmReleasesView()
                 } else {
                     if showDetail, let resource = selectedResource {
                         HSplitView {
@@ -155,6 +158,15 @@ struct MainWindow: View {
                 NamespacePicker()
 
                 Button {
+                    showCreateResource = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("Create a resource from YAML")
+                .disabled(viewModel.activeClients.isEmpty)
+                .keyboardShortcut("n", modifiers: .command)
+
+                Button {
                     showAccessReview = true
                 } label: {
                     Image(systemName: "lock.shield")
@@ -201,6 +213,10 @@ struct MainWindow: View {
         .onChange(of: viewModel.selectedNamespace) { _, _ in viewModel.saveState() }
         .sheet(isPresented: $showAccessReview) {
             AccessReviewView()
+                .environment(viewModel)
+        }
+        .sheet(isPresented: $showCreateResource) {
+            CreateResourceView()
                 .environment(viewModel)
         }
         .overlay {

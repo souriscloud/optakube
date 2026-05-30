@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-30
+
+### Added
+- **Helm releases.** A "Helm" section in the sidebar lists Helm v3 releases (latest revision per release) across connected clusters, with status, chart, app version, and update time. Inspect any release for its info, user-supplied values, rendered manifest, and full revision history. Decoded directly from the `owner=helm` release Secrets (base64 → base64 → gunzip → JSON) — no `helm` binary required. *(Rollback/uninstall are not yet wired.)*
+- **Create resources from YAML.** A `+` toolbar button (⌘N) opens an editor: paste a manifest and apply it with **server-side apply** (create-or-update, idempotent). Routes by the manifest's `apiVersion`/`kind`, resolving against built-in types and discovered CRDs.
+- **Seven new resource types.** RBAC — Roles, RoleBindings, ClusterRoles, ClusterRoleBindings — plus StorageClasses, ResourceQuotas, and PodDisruptionBudgets, each with a purpose-built table. They inherit the existing YAML view/edit/diff/apply and delete actions for free.
+- **CRD instance editing.** Discovered custom resources are no longer browse-only: a context-menu "Edit YAML…" opens a sheet with view/edit/diff/apply and delete, matching the built-in types.
+- **Ko-fi support link** in the status-bar footer (centralized with the About link).
+
+### Internal
+- Test target grows to 39 (added: Helm gzip inflate against a real fixture, `ResourceType.kind` manifest-routing round-trip, and group/scope checks for the new types).
+
 ## [0.5.0] - 2026-05-30
 
 ### Added

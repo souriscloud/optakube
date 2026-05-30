@@ -3,6 +3,8 @@ import SwiftUI
 struct ResourceListView: View {
     @Environment(AppViewModel.self) private var viewModel
     @Binding var selectedResource: ResourceIdentifier?
+    /// Custom-resource instance currently open in the YAML editor sheet.
+    @State private var crdEditItem: GenericK8sResource?
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -71,6 +73,13 @@ struct ResourceListView: View {
                 case .horizontalPodAutoscalers: hpaTable
                 case .namespaces: namespaceTable
                 case .endpoints: endpointsTable
+                case .roles: roleTable
+                case .roleBindings: roleBindingTable
+                case .clusterRoles: clusterRoleTable
+                case .clusterRoleBindings: clusterRoleBindingTable
+                case .storageClasses: storageClassTable
+                case .resourceQuotas: resourceQuotaTable
+                case .podDisruptionBudgets: podDisruptionBudgetTable
                 }
             }
         }
@@ -503,6 +512,105 @@ struct ResourceListView: View {
         }
     }
 
+    // MARK: - Role Table
+
+    private var roleTable: some View {
+        Table(filteredRows(from: \.roles, type: .roles) { RoleRow(id: $0, role: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.role.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 250)
+            TableColumn("Namespace", value: \.role.namespace).width(min: 80, ideal: 120)
+            TableColumn("Rules") { item in Text("\(item.role.rulesCount)").monospacedDigit() }.width(45)
+            TableColumn("Verbs") { item in Text(item.role.verbsSummary).font(.caption).foregroundStyle(.secondary) }.width(min: 100, ideal: 220)
+            TableColumn("Age") { item in Text(item.role.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - RoleBinding Table
+
+    private var roleBindingTable: some View {
+        Table(filteredRows(from: \.roleBindings, type: .roleBindings) { RoleBindingRow(id: $0, roleBinding: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.roleBinding.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 220)
+            TableColumn("Namespace", value: \.roleBinding.namespace).width(min: 80, ideal: 120)
+            TableColumn("Role") { item in Text(item.roleBinding.roleRefDisplay).font(.caption) }.width(min: 100, ideal: 180)
+            TableColumn("Subjects") { item in Text(item.roleBinding.subjectsDisplay).font(.caption).foregroundStyle(.secondary) }.width(min: 100, ideal: 220)
+            TableColumn("Age") { item in Text(item.roleBinding.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - ClusterRole Table
+
+    private var clusterRoleTable: some View {
+        Table(filteredRows(from: \.clusterRoles, type: .clusterRoles, namespaced: false) { ClusterRoleRow(id: $0, clusterRole: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.clusterRole.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 300)
+            TableColumn("Rules") { item in Text("\(item.clusterRole.rulesCount)").monospacedDigit() }.width(45)
+            TableColumn("Verbs") { item in Text(item.clusterRole.verbsSummary).font(.caption).foregroundStyle(.secondary) }.width(min: 120, ideal: 260)
+            TableColumn("Age") { item in Text(item.clusterRole.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - ClusterRoleBinding Table
+
+    private var clusterRoleBindingTable: some View {
+        Table(filteredRows(from: \.clusterRoleBindings, type: .clusterRoleBindings, namespaced: false) { ClusterRoleBindingRow(id: $0, clusterRoleBinding: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.clusterRoleBinding.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 150, ideal: 260)
+            TableColumn("Role") { item in Text(item.clusterRoleBinding.roleRefDisplay).font(.caption) }.width(min: 100, ideal: 200)
+            TableColumn("Subjects") { item in Text(item.clusterRoleBinding.subjectsDisplay).font(.caption).foregroundStyle(.secondary) }.width(min: 120, ideal: 260)
+            TableColumn("Age") { item in Text(item.clusterRoleBinding.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - StorageClass Table
+
+    private var storageClassTable: some View {
+        Table(filteredRows(from: \.storageClasses, type: .storageClasses, namespaced: false) { StorageClassRow(id: $0, storageClass: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in
+                HStack(spacing: 4) {
+                    Text(item.storageClass.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0))
+                    if item.storageClass.isDefault {
+                        Text("default").font(.system(size: 9)).padding(.horizontal, 4).padding(.vertical, 1).background(.green.opacity(0.2)).foregroundStyle(.green).clipShape(Capsule())
+                    }
+                }
+                .contextMenu { ResourceContextMenu(resource: item.id) }
+            }.width(min: 150, ideal: 220)
+            TableColumn("Provisioner") { item in Text(item.storageClass.provisioner ?? "—").font(.caption) }.width(min: 120, ideal: 220)
+            TableColumn("Reclaim") { item in Text(item.storageClass.reclaimPolicyDisplay).font(.caption) }.width(80)
+            TableColumn("Binding") { item in Text(item.storageClass.bindingModeDisplay).font(.caption) }.width(min: 90, ideal: 120)
+            TableColumn("Age") { item in Text(item.storageClass.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - ResourceQuota Table
+
+    private var resourceQuotaTable: some View {
+        Table(filteredRows(from: \.resourceQuotas, type: .resourceQuotas) { ResourceQuotaRow(id: $0, resourceQuota: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { _ in ResourceStatusBadge(status: .running) }.width(24)
+            TableColumn("Name") { item in Text(item.resourceQuota.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 120, ideal: 180)
+            TableColumn("Namespace", value: \.resourceQuota.namespace).width(min: 80, ideal: 120)
+            TableColumn("Used") { item in Text(item.resourceQuota.usedDisplay).font(.caption).foregroundStyle(.secondary) }.width(min: 100, ideal: 200)
+            TableColumn("Hard") { item in Text(item.resourceQuota.hardDisplay).font(.caption) }.width(min: 100, ideal: 200)
+            TableColumn("Age") { item in Text(item.resourceQuota.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
+    // MARK: - PodDisruptionBudget Table
+
+    private var podDisruptionBudgetTable: some View {
+        Table(filteredRows(from: \.podDisruptionBudgets, type: .podDisruptionBudgets) { PodDisruptionBudgetRow(id: $0, podDisruptionBudget: $1, clusterId: $2) }, selection: $selectedResource) {
+            TableColumn("") { item in ResourceStatusBadge(status: item.podDisruptionBudget.resourceStatus) }.width(24)
+            TableColumn("Name") { item in Text(item.podDisruptionBudget.name).fontWeight(.medium).foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0)).contextMenu { ResourceContextMenu(resource: item.id) } }.width(min: 130, ideal: 200)
+            TableColumn("Namespace", value: \.podDisruptionBudget.namespace).width(min: 80, ideal: 120)
+            TableColumn("Min Avail") { item in Text(item.podDisruptionBudget.minAvailableDisplay).font(.caption).monospacedDigit() }.width(70)
+            TableColumn("Max Unavail") { item in Text(item.podDisruptionBudget.maxUnavailableDisplay).font(.caption).monospacedDigit() }.width(85)
+            TableColumn("Allowed") { item in Text("\(item.podDisruptionBudget.allowedDisruptions)").monospacedDigit() }.width(60)
+            TableColumn("Healthy") { item in Text(item.podDisruptionBudget.healthyDisplay).monospacedDigit() }.width(60)
+            TableColumn("Age") { item in Text(item.podDisruptionBudget.age).foregroundStyle(.secondary) }.width(50)
+        }
+    }
+
     // MARK: - Generic Row Builder
 
     private func filteredRows<T: K8sResource, Row: Identifiable>(
@@ -569,6 +677,13 @@ struct ResourceListView: View {
             case .horizontalPodAutoscalers: add(\.horizontalPodAutoscalers)
             case .namespaces: add(\.namespaces, namespaced: false)
             case .endpoints: add(\.endpoints)
+            case .roles: add(\.roles)
+            case .roleBindings: add(\.roleBindings)
+            case .clusterRoles: add(\.clusterRoles, namespaced: false)
+            case .clusterRoleBindings: add(\.clusterRoleBindings, namespaced: false)
+            case .storageClasses: add(\.storageClasses, namespaced: false)
+            case .resourceQuotas: add(\.resourceQuotas)
+            case .podDisruptionBudgets: add(\.podDisruptionBudgets)
             }
         }
         if !viewModel.searchText.isEmpty {
@@ -605,6 +720,13 @@ struct ResourceListView: View {
                     Text(item.name)
                         .fontWeight(.medium)
                         .foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0))
+                        .contextMenu {
+                            Button("Edit YAML…") { crdEditItem = item }
+                            Button("Copy Name") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(item.name, forType: .string)
+                            }
+                        }
                 }
                 .width(min: 150, ideal: 250)
 
@@ -631,7 +753,26 @@ struct ResourceListView: View {
                 }
                 .width(min: 100, ideal: 150)
             }
+            .sheet(item: $crdEditItem) { item in
+                CRDInstanceDetailView(
+                    crd: crd,
+                    item: item,
+                    clusterId: clusterId(forCRDItem: item),
+                    onChanged: { Task { await viewModel.refresh() } }
+                )
+                .environment(viewModel)
+            }
         }
+    }
+
+    /// Best-effort owning cluster for a custom-resource instance (its id is
+    /// namespace/name; cross-cluster name collisions are rare and fall back to the
+    /// first selected cluster).
+    private func clusterId(forCRDItem item: GenericK8sResource) -> String {
+        for cid in viewModel.selectedClusterIds where (viewModel.customResources[cid] ?? []).contains(where: { $0.id == item.id }) {
+            return cid
+        }
+        return viewModel.selectedClusterIds.first ?? ""
     }
 
     // MARK: - Pod Metrics Helpers
@@ -800,3 +941,10 @@ struct ServiceAccountRow: Identifiable, ResourceRow { let id: ResourceIdentifier
 struct HPARow: Identifiable, ResourceRow { let id: ResourceIdentifier; let hpa: HorizontalPodAutoscaler; let clusterId: String; var resourceId: ResourceIdentifier { id } }
 struct NamespaceRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let ns: Namespace; let clusterId: String; var resourceId: ResourceIdentifier { id } }
 struct EndpointsRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let endpoints: Endpoints; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct RoleRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let role: Role; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct RoleBindingRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let roleBinding: RoleBinding; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct ClusterRoleRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let clusterRole: ClusterRole; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct ClusterRoleBindingRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let clusterRoleBinding: ClusterRoleBinding; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct StorageClassRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let storageClass: StorageClass; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct ResourceQuotaRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let resourceQuota: ResourceQuota; let clusterId: String; var resourceId: ResourceIdentifier { id } }
+struct PodDisruptionBudgetRow: Identifiable, ResourceRow { let id: ResourceIdentifier; let podDisruptionBudget: PodDisruptionBudget; let clusterId: String; var resourceId: ResourceIdentifier { id } }
