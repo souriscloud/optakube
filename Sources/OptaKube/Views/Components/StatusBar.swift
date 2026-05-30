@@ -66,6 +66,19 @@ struct StatusBar: View {
 
             Divider().frame(height: 12)
 
+            // Support — Ko-fi (colored, clickable)
+            Link(destination: AppInfo.kofiURL) {
+                HStack(spacing: 3) {
+                    Image(systemName: "cup.and.saucer.fill")
+                    Text("Support")
+                }
+                .foregroundStyle(AppInfo.kofiColor)
+            }
+            .buttonStyle(.plain)
+            .help("Support OptaKube on Ko-fi")
+
+            Divider().frame(height: 12)
+
             // Version
             Text("v\(AppInfo.version)")
                 .foregroundStyle(.tertiary)

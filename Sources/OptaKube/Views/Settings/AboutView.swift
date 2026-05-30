@@ -40,9 +40,9 @@ struct AboutView: View {
                 Text("Made by Souris.CLOUD")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Link("bio.souris.cloud", destination: URL(string: "https://bio.souris.cloud")!)
+                Link("bio.souris.cloud", destination: AppInfo.bioURL)
                     .font(.caption)
-                Link(destination: URL(string: "https://ko-fi.com/souriscloud")!) {
+                Link(destination: AppInfo.kofiURL) {
                     HStack(spacing: 4) {
                         Image(systemName: "cup.and.saucer.fill")
                         Text("Support on Ko-fi")
@@ -50,8 +50,8 @@ struct AboutView: View {
                     .font(.caption)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color(red: 1.0, green: 0.36, blue: 0.42).opacity(0.15))
-                    .foregroundStyle(Color(red: 1.0, green: 0.36, blue: 0.42))
+                    .background(AppInfo.kofiColor.opacity(0.15))
+                    .foregroundStyle(AppInfo.kofiColor)
                     .clipShape(Capsule())
                 }
             }
@@ -87,4 +87,15 @@ enum AppInfo {
     }()
 
     static let bundleId = "cloud.souris.optakube"
+
+    // MARK: - Links (single source of truth for support/brand URLs)
+
+    /// Ko-fi handle — change here only; README, About, and the status-bar footer
+    /// all derive their link from this.
+    static let kofiHandle = "souriscloud"
+    static let kofiURL = URL(string: "https://ko-fi.com/\(kofiHandle)")!
+    static let bioURL = URL(string: "https://bio.souris.cloud")!
+
+    /// Ko-fi brand colour (their pinkish-red), used for the support affordances.
+    static let kofiColor = Color(red: 1.0, green: 0.36, blue: 0.42)
 }
