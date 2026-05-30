@@ -109,12 +109,21 @@ struct HelmReleaseDetailView: View {
     let latest: HelmRelease
 
     @State private var tab = "info"
+    @State private var showUninstallConfirm = false
+    @State private var rollbackTarget: Int?
+    @State private var working = false
+    @State private var actionMessage: String?
+    @State private var actionOK = true
 
     private var history: [HelmRelease] {
         (viewModel.helmReleases[clusterId] ?? [])
             .filter { $0.name == releaseName && $0.namespace == namespace }
             .sorted { $0.revision > $1.revision }
     }
+
+    /// Live current revision (max in history) — updates after a rollback, unlike the
+    /// captured `latest`.
+    private var currentRevision: Int { history.map(\.revision).max() ?? latest.revision }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -126,9 +135,25 @@ struct HelmReleaseDetailView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if working { ProgressView().controlSize(.small) }
+                Button(role: .destructive) { showUninstallConfirm = true } label: {
+                    Label("Uninstall", systemImage: "trash")
+                }
+                .tint(.red)
+                .disabled(working)
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
             .padding()
+
+            if let actionMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: actionOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(actionOK ? .green : .orange)
+                    Text(actionMessage).font(.caption).foregroundStyle(actionOK ? .green : .orange)
+                    Spacer()
+                }
+                .padding(.horizontal).padding(.bottom, 6)
+            }
 
             Picker("", selection: $tab) {
                 Text("Info").tag("info")
@@ -148,6 +173,41 @@ struct HelmReleaseDetailView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 460)
+        .confirmationDialog("Uninstall \(releaseName)?", isPresented: $showUninstallConfirm, titleVisibility: .visible) {
+            Button("Uninstall", role: .destructive) { runUninstall() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deletes all resources in this release's manifest and its history. This cannot be undone.")
+        }
+        .confirmationDialog("Roll back \(releaseName) to revision \(rollbackTarget ?? 0)?",
+                            isPresented: Binding(get: { rollbackTarget != nil }, set: { if !$0 { rollbackTarget = nil } }),
+                            titleVisibility: .visible) {
+            Button("Roll back") { if let t = rollbackTarget { runRollback(to: t) } }
+            Button("Cancel", role: .cancel) { rollbackTarget = nil }
+        } message: {
+            Text("Re-applies revision \(rollbackTarget ?? 0)'s manifest and records it as a new deployed revision.")
+        }
+    }
+
+    private func runUninstall() {
+        working = true; actionMessage = nil
+        Task {
+            let r = await viewModel.helmUninstall(release: releaseName, namespace: namespace, manifest: latest.manifest, clusterId: clusterId)
+            await MainActor.run {
+                working = false
+                if r.ok { dismiss() } else { actionOK = false; actionMessage = r.message }
+            }
+        }
+    }
+
+    private func runRollback(to revision: Int) {
+        working = true; actionMessage = nil; rollbackTarget = nil
+        Task {
+            let r = await viewModel.helmRollback(release: releaseName, namespace: namespace, toRevision: revision, clusterId: clusterId)
+            await MainActor.run {
+                working = false; actionOK = r.ok; actionMessage = r.message
+            }
+        }
     }
 
     private var infoList: some View {
@@ -178,9 +238,13 @@ struct HelmReleaseDetailView: View {
                         Spacer()
                         Text(String(rev.updated.prefix(19)).replacingOccurrences(of: "T", with: " "))
                             .font(.caption2).foregroundStyle(.tertiary)
+                        if rev.revision != currentRevision {
+                            Button("Rollback") { rollbackTarget = rev.revision }
+                                .controlSize(.small).disabled(working)
+                        }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(rev.revision == latest.revision ? Color.accentColor.opacity(0.08) : Color.clear)
+                    .background(rev.revision == currentRevision ? Color.accentColor.opacity(0.08) : Color.clear)
                     Divider()
                 }
             }

@@ -263,6 +263,79 @@ final class K8sAPIClient: Sendable {
         return releases
     }
 
+    // MARK: - Helm uninstall / rollback support
+
+    /// One backing Secret for a Helm release revision.
+    struct HelmReleaseSecret: Sendable {
+        let secretName: String
+        let revision: Int
+        let releaseB64: String   // value of data.release as returned by the API
+        let status: String       // status label
+    }
+
+    /// DELETE an arbitrary resource by server-relative path.
+    func deleteByPath(_ path: String) async throws {
+        guard let url = URL(string: connection.server + path) else { throw K8sError.invalidURL }
+        _ = try await request(url: url, method: "DELETE")
+    }
+
+    /// Fetch the backing Secrets for one Helm release (all revisions).
+    func listHelmReleaseSecrets(release: String, namespace: String) async throws -> [HelmReleaseSecret] {
+        let selector = "owner=helm,name=\(release)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "owner%3Dhelm"
+        guard let url = URL(string: connection.server + "/api/v1/namespaces/\(namespace)/secrets?labelSelector=\(selector)") else {
+            throw K8sError.invalidURL
+        }
+        let data = try await request(url: url)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = json["items"] as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            let meta = item["metadata"] as? [String: Any]
+            let labels = meta?["labels"] as? [String: Any]
+            guard let secretName = meta?["name"] as? String,
+                  let rel = (item["data"] as? [String: Any])?["release"] as? String else { return nil }
+            let revision = Int((labels?["version"] as? String) ?? "") ?? 0
+            return HelmReleaseSecret(secretName: secretName, revision: revision, releaseB64: rel,
+                                     status: (labels?["status"] as? String) ?? "")
+        }.sorted { $0.revision < $1.revision }
+    }
+
+    /// Create a Helm release-history Secret (POST). `dataReleaseB64` is the fully
+    /// double-base64-encoded payload for `data.release`.
+    func createHelmReleaseSecret(release: String, namespace: String, revision: Int,
+                                 status: String, dataReleaseB64: String) async throws {
+        let secretName = "sh.helm.release.v1.\(release).v\(revision)"
+        let body: [String: Any] = [
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "type": "helm.sh/release.v1",
+            "metadata": [
+                "name": secretName,
+                "namespace": namespace,
+                "labels": ["name": release, "owner": "helm", "status": status, "version": "\(revision)"]
+            ],
+            "data": ["release": dataReleaseB64]
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: body)
+        guard let url = URL(string: connection.server + "/api/v1/namespaces/\(namespace)/secrets") else {
+            throw K8sError.invalidURL
+        }
+        _ = try await request(url: url, method: "POST", body: payload, contentType: "application/json")
+    }
+
+    /// Patch a release Secret's status label + embedded payload (used to mark the prior
+    /// current revision "superseded" on rollback).
+    func patchHelmReleaseSecret(secretName: String, namespace: String, status: String, dataReleaseB64: String) async throws {
+        let body: [String: Any] = [
+            "metadata": ["labels": ["status": status]],
+            "data": ["release": dataReleaseB64]
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: body)
+        guard let url = URL(string: connection.server + "/api/v1/namespaces/\(namespace)/secrets/\(secretName)") else {
+            throw K8sError.invalidURL
+        }
+        _ = try await request(url: url, method: "PATCH", body: payload, contentType: "application/strategic-merge-patch+json")
+    }
+
     /// Server-side apply a manifest (create-or-update) at a pre-resolved resource path
     /// like `/apis/apps/v1/namespaces/default/deployments/web`. Uses
     /// `application/apply-patch+yaml` with a stable field manager, so re-applying an

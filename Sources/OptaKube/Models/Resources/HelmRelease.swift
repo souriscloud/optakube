@@ -69,6 +69,58 @@ struct HelmRelease: Identifiable, Sendable {
         )
     }
 
+    /// Decode the *full* release JSON (not the lossy model) — needed by rollback, which
+    /// must rebuild a complete release object for the new revision.
+    static func decodeFullJSON(fromSecretReleaseB64 b64: String) -> [String: Any]? {
+        guard let layer1 = Data(base64Encoded: b64.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let inner = String(decoding: layer1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let gz = Data(base64Encoded: inner), let jsonData = gunzip(gz) else { return nil }
+        return try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+    }
+
+    /// Encode a release JSON back into the value to store in a Secret's `data.release`:
+    /// gzip → base64 (Helm's layer) → base64 (the Kubernetes Secret `data` layer).
+    static func encodeForSecretData(json: [String: Any]) -> String? {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: json),
+              let gz = gzip(jsonData) else { return nil }
+        let helmLayer = gz.base64EncodedString()
+        return Data(helmLayer.utf8).base64EncodedString()
+    }
+
+    /// Compress to a gzip stream: 10-byte header + raw DEFLATE (Compression's
+    /// `COMPRESSION_ZLIB` is RFC-1951 raw deflate, despite the name) + CRC32 + ISIZE.
+    static func gzip(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        let cap = data.count + 64 * 1024 + 128
+        let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: cap)
+        defer { dst.deallocate() }
+        let deflated = data.withUnsafeBytes { (src: UnsafeRawBufferPointer) -> Int in
+            guard let base = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return compression_encode_buffer(dst, cap, base, data.count, nil, COMPRESSION_ZLIB)
+        }
+        guard deflated > 0 else { return nil }
+        var out = Data([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xff])  // header (OS=unknown)
+        out.append(dst, count: deflated)
+        var crc = crc32(data).littleEndian
+        withUnsafeBytes(of: &crc) { out.append(contentsOf: $0) }
+        var isize = UInt32(truncatingIfNeeded: data.count).littleEndian
+        withUnsafeBytes(of: &isize) { out.append(contentsOf: $0) }
+        return out
+    }
+
+    /// Standard CRC-32 (polynomial 0xEDB88320), bit-by-bit — release payloads are small
+    /// so a table isn't worth it.
+    static func crc32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFFFFFF
+        for byte in data {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 {
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : (crc >> 1)
+            }
+        }
+        return crc ^ 0xFFFFFFFF
+    }
+
     /// Inflate a gzip stream using the Compression framework. The framework's zlib
     /// codec wants a raw deflate body, so we strip gzip's 10-byte header and 8-byte
     /// trailer (Helm's Go gzip writer emits no optional header fields) and read the

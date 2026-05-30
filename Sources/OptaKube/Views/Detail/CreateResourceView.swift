@@ -104,19 +104,12 @@ struct CreateResourceView: View {
             errorMessage = "Manifest needs apiVersion, kind, and metadata.name."; return
         }
 
-        guard let gvr = resolveGVR(apiVersion: apiVersion, kind: kind) else {
+        let manifestNS = meta["namespace"] as? String
+        guard let path = ManifestRouting.resourcePath(apiVersion: apiVersion, kind: kind, name: name,
+                                                       namespace: manifestNS, crds: viewModel.discoveredCRDs,
+                                                       fallbackNamespace: viewModel.selectedNamespace ?? "default") else {
             errorMessage = "Unknown kind \"\(kind)\" for \(apiVersion). If it's a CRD, open that cluster's CRDs first so it's discovered."
             return
-        }
-
-        let manifestNS = meta["namespace"] as? String
-        let ns = gvr.namespaced ? (manifestNS ?? viewModel.selectedNamespace ?? "default") : nil
-        let apiPath = apiVersion.contains("/") ? "/apis/\(apiVersion)" : "/api/\(apiVersion)"
-        let path: String
-        if let ns {
-            path = "\(apiPath)/namespaces/\(ns)/\(gvr.plural)/\(name)"
-        } else {
-            path = "\(apiPath)/\(gvr.plural)/\(name)"
         }
 
         isApplying = true
@@ -125,28 +118,13 @@ struct CreateResourceView: View {
                 try await client.serverSideApply(path: path, yaml: text)
                 await MainActor.run {
                     isApplying = false
-                    successMessage = "Applied \(kind)/\(name)\(ns.map { " in \($0)" } ?? "")."
+                    successMessage = "Applied \(kind)/\(name)."
                     Task { await viewModel.refresh() }
                 }
             } catch {
                 await MainActor.run { isApplying = false; errorMessage = error.localizedDescription }
             }
         }
-    }
-
-    private struct GVR { let plural: String; let namespaced: Bool }
-
-    /// Resolve a manifest's (apiVersion, kind) to its resource plural + scope, using the
-    /// built-in types first, then any CRDs discovered on the connected cluster.
-    private func resolveGVR(apiVersion: String, kind: String) -> GVR? {
-        if let rt = ResourceType.allCases.first(where: { $0.kind == kind }) {
-            return GVR(plural: rt.resource, namespaced: rt.isNamespaced)
-        }
-        let group = apiVersion.contains("/") ? String(apiVersion.split(separator: "/").first ?? "") : ""
-        if let crd = viewModel.discoveredCRDs.first(where: { $0.kind == kind && $0.group == group }) {
-            return GVR(plural: crd.plural, namespaced: crd.isNamespaced)
-        }
-        return nil
     }
 
     private func clusterName(_ id: String) -> String {

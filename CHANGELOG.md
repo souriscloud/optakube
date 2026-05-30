@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Helm rollback & uninstall.** From a release's detail sheet: **Uninstall** deletes every object in the current revision's rendered manifest and then the release's history Secrets; **Rollback** (per past revision in History) re-applies that revision's manifest via server-side apply, writes a new deployed revision Secret (gzip + CRC32 encoded to match Helm's storage format), and marks the prior revision superseded. Both are confirmation-gated. *(No `helm` binary required — works directly against the release Secrets.)*
+
+### Internal
+- Tests → 43: CRC-32 known-vector, gzip→gunzip round-trip, and a full secret-payload encode→decode round-trip validating the rollback encoder; plus manifest multi-doc splitting.
+
 ## [0.6.0] - 2026-05-30
 
 ### Added
