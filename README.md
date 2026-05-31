@@ -20,7 +20,7 @@ Browse, inspect, and operate your clusters from a real Mac app — built in Swif
 
 OptaKube talks to the Kubernetes API directly over `URLSession` — no bundled `kubectl` proxy, no third-party HTTP stack, no web views. It opens instantly, sips memory, and feels like the Mac app it is.
 
-![OptaKube browsing pods across namespaces](docs/screenshot-pods.png)
+![OptaKube — cluster overview, Helm releases, YAML apply, access review, and events](docs/demo.gif)
 
 ## Features
 
