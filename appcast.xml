@@ -3,6 +3,22 @@
     <channel>
         <title>OptaKube</title>
         <item>
+            <title>0.8.0</title>
+            <pubDate>Sun, 31 May 2026 12:21:45 +0200</pubDate>
+            <sparkle:version>800</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube-0.8.0.dmg" length="7551505" type="application/octet-stream" sparkle:edSignature="WxRu1ANYWV3Hdj3967olMyNLf7J6QFZqAS1QmWbmxmo8rAE0U6A65L9XrFbC+k4myjcb1Tqcel/c3ViaUfFPBg=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube800-700.delta" sparkle:deltaFrom="700" length="643278" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="IHx9rShKWCukBLF2DRJhSfibHpxl2psshsH0O7aYcpJihyJo+yhAc8A1UjcyqAa5OZ+zfntFfHRTYfjtKYn3BQ=="/>
+                <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube800-600.delta" sparkle:deltaFrom="600" length="748586" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="WdQTF9/my2UOQ3JTxKyslMOZmnWW5jU10PI8wUpt0hdh+HLGRj0ELQRqDV0cMinGyZVnf+H+hIZ5VZ9k80QeCQ=="/>
+                <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube800-500.delta" sparkle:deltaFrom="500" length="1071166" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="a9KgcBDhp0KfPpwBSLkKXIHiIc+rLam6y9bXOj4Gv+TFBVIwhLyFHXRlDga9YENi0goKWFPFbxhVI0gw365LCA=="/>
+                <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube800-405.delta" sparkle:deltaFrom="405" length="1162558" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="jRmcS+Q5kL1IN1ZUk13PNCWye6o94dRLMfwWSEhld/H0CLpTk3zWIsBbm+N1sISZTV/iokcGdlng0MtnSXodDQ=="/>
+                <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.8.0/OptaKube800-404.delta" sparkle:deltaFrom="404" length="1144246" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="FRV/AbLWVsgCFx5jErLEtQvUAL4nttz2IdJUvU/5LEuyMeOaqAik0F9P/vAwqAAiqnXkpWTVtPLVnf9WZuUXAg=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>0.7.0</title>
             <pubDate>Sun, 31 May 2026 03:10:42 +0200</pubDate>
             <sparkle:version>700</sparkle:version>
@@ -135,7 +151,7 @@
             <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg" length="7975264" type="application/octet-stream" sparkle:edSignature="XzVQOssBJzyX3fBOsDZ3IO5aIe3Cqyu9SMLcZv3YipEalftzLBDB+uJV0s1ydzDztAA3LPczSwKv1bhBK01ICA=="/>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg" length="7975264" type="application/octet-stream"/>
         </item>
     </channel>
 </rss>

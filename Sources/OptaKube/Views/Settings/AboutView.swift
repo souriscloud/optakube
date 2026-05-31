@@ -75,7 +75,7 @@ struct AboutView: View {
 enum AppInfo {
     /// Single source of truth. release.sh keeps this line and Info.plist in sync.
     /// Compile-time constant so it works under `swift run` too (no Info.plist there).
-    static let version = "0.7.0"
+    static let version = "0.8.0"
 
     /// Derived from version: major*10000 + minor*100 + patch. So 0.2.0 → 200,
     /// 1.2.3 → 10203. Monotonic for Sparkle's CFBundleVersion comparison without
