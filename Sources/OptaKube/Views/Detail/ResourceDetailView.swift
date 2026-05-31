@@ -489,10 +489,7 @@ struct ResourceDetailView: View {
                     .padding(4)
             }
 
-            TextEditor(text: $editContent)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(4)
+            YAMLTextView(text: $editContent)
         }
         .sheet(isPresented: $showDiff) {
             YAMLDiffView(
@@ -505,88 +502,6 @@ struct ResourceDetailView: View {
                 onCancel: { showDiff = false }
             )
         }
-    }
-
-    // MARK: - YAML Syntax Highlighting
-
-    private func syntaxHighlightedYAML(_ yaml: String) -> AttributedString {
-        var result = AttributedString()
-        let lines = yaml.split(separator: "\n", omittingEmptySubsequences: false)
-        for (index, line) in lines.enumerated() {
-            let lineStr = String(line)
-            if index > 0 {
-                var newline = AttributedString("\n")
-                newline.font = .system(.body, design: .monospaced)
-                result.append(newline)
-            }
-
-            if lineStr.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
-                // Comment
-                var attr = AttributedString(lineStr)
-                attr.font = .system(.body, design: .monospaced)
-                attr.foregroundColor = .gray
-                result.append(attr)
-            } else if lineStr.trimmingCharacters(in: .whitespaces).hasPrefix("- ") {
-                // List item
-                if let dashRange = lineStr.range(of: "- ") {
-                    let indent = String(lineStr[lineStr.startIndex..<dashRange.lowerBound])
-                    var indentAttr = AttributedString(indent)
-                    indentAttr.font = .system(.body, design: .monospaced)
-                    result.append(indentAttr)
-
-                    var dashAttr = AttributedString("- ")
-                    dashAttr.font = .system(.body, design: .monospaced)
-                    dashAttr.foregroundColor = .gray
-                    result.append(dashAttr)
-
-                    let rest = String(lineStr[dashRange.upperBound...])
-                    result.append(highlightYAMLKeyValue(rest))
-                } else {
-                    result.append(highlightYAMLKeyValue(lineStr))
-                }
-            } else {
-                result.append(highlightYAMLKeyValue(lineStr))
-            }
-        }
-        return result
-    }
-
-    private func highlightYAMLKeyValue(_ line: String) -> AttributedString {
-        var result = AttributedString()
-        if let colonIdx = line.firstIndex(of: ":") {
-            let key = String(line[line.startIndex...colonIdx])
-            var keyAttr = AttributedString(key)
-            keyAttr.font = .system(.body, design: .monospaced)
-            keyAttr.foregroundColor = .teal
-            result.append(keyAttr)
-
-            let afterColon = line.index(after: colonIdx)
-            if afterColon < line.endIndex {
-                let value = String(line[afterColon...]).trimmingCharacters(in: .whitespaces)
-                var spaceAttr = AttributedString(" ")
-                spaceAttr.font = .system(.body, design: .monospaced)
-                result.append(spaceAttr)
-
-                var valAttr = AttributedString(value)
-                valAttr.font = .system(.body, design: .monospaced)
-                if value == "true" || value == "false" || value == "null" || value == "~" {
-                    valAttr.foregroundColor = .purple
-                } else if value.hasPrefix("'") || value.hasPrefix("\"") {
-                    valAttr.foregroundColor = .green
-                } else if let _ = Double(value) {
-                    valAttr.foregroundColor = .orange
-                } else {
-                    valAttr.foregroundColor = .green
-                }
-                result.append(valAttr)
-            }
-        } else {
-            var attr = AttributedString(line)
-            attr.font = .system(.body, design: .monospaced)
-            attr.foregroundColor = .primary
-            result.append(attr)
-        }
-        return result
     }
 
     // MARK: - Apply Changes
@@ -669,8 +584,8 @@ struct ResourceDetailView: View {
                         yamlContent = yamlStr
                         isLoadingYAML = false
                     }
-                    // Compute highlighting in background
-                    let highlighted = syntaxHighlightedYAML(yamlStr)
+                    // Compute highlighting in background (shared highlighter)
+                    let highlighted = YAMLHighlighter.attributedString(yamlStr)
                     await MainActor.run {
                         highlightedYAML = highlighted
                     }

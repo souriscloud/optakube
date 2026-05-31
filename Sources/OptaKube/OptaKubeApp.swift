@@ -58,6 +58,16 @@ struct OptaKubeApp: App {
                 Button("Ingresses") { switchResourceType(.ingresses) }
                     .keyboardShortcut("9", modifiers: .command)
             }
+
+            // Help → Send Feedback (pre-filled GitHub issue) + issues list.
+            CommandGroup(replacing: .help) {
+                Button("Send Feedback…") {
+                    openWindow(id: "feedback")
+                }
+                Button("OptaKube Issues on GitHub") {
+                    if let url = GitHubFeedback.issuesListURL { NSWorkspace.shared.open(url) }
+                }
+            }
         }
 
         // Menu bar icon — uses cube symbol (matches app icon), supports macOS tinting.
@@ -75,6 +85,13 @@ struct OptaKubeApp: App {
         // About window
         Window("About OptaKube", id: "about") {
             AboutView()
+        }
+        .windowStyle(.titleBar)
+        .windowResizability(.contentSize)
+
+        // Feedback window — pre-fills a GitHub issue, no backend.
+        Window("Send Feedback", id: "feedback") {
+            FeedbackView()
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)

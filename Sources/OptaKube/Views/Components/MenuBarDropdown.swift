@@ -64,6 +64,10 @@ struct MenuBarDropdownView: View {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
         .keyboardShortcut(",", modifiers: .command)
+        Button("Send Feedback…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "feedback")
+        }
 
         Divider()
 

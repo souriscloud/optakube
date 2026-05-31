@@ -7,11 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-31
+
+### Added
+- **YAML syntax highlighting everywhere, in a YAML-aware editor.** One shared highlighter now colours keys, strings, numbers, booleans/null, comments, document markers, and list dashes across every YAML surface — the resource YAML tab, CRD instance view, Helm rendered manifests, and the create/edit editors. The editor is backed by a real `NSTextView`: **Return keeps the current indent** (and adds a level after a `key:` or `|`/`>` block scalar), **Tab inserts two spaces**, **Shift-Tab dedents**, and — critically — macOS smart-quote / smart-dash / text-replacement substitutions are disabled so they can't silently corrupt a manifest.
+- **Send Feedback.** A built-in feedback form (Help → Send Feedback…, also in the menu-bar dropdown) composes a pre-filled GitHub issue — Bug / Feature / Question, with an optional non-identifying diagnostics line (app version, macOS version, CPU arch — never clusters or credentials) — and opens it in your browser to review and submit. A **Copy report** fallback covers anyone without a GitHub account. No backend, no auth.
+
+### Internal
+- Tests → 52: a lossless YAML-tokenizer round-trip (tokens must reconstruct each line exactly), key/scalar colour classification, URL-value-not-mis-split, and GitHub feedback URL/diagnostics assembly.
+- Release pipeline reworked to a single stable channel: `generate_appcast` produces a fully-signed, full-history `appcast.xml` with binary deltas; the beta channel and its appcast are removed; `release.sh` gains `.env`-driven signing config, preflight gates, hard-fail notarization, and a version-bump revert trap.
+
+## [0.7.0] - 2026-05-30
+
 ### Added
 - **Helm rollback & uninstall.** From a release's detail sheet: **Uninstall** deletes every object in the current revision's rendered manifest and then the release's history Secrets; **Rollback** (per past revision in History) re-applies that revision's manifest via server-side apply, writes a new deployed revision Secret (gzip + CRC32 encoded to match Helm's storage format), and marks the prior revision superseded. Both are confirmation-gated. *(No `helm` binary required — works directly against the release Secrets.)*
 
 ### Internal
-- Tests → 43: CRC-32 known-vector, gzip→gunzip round-trip, and a full secret-payload encode→decode round-trip validating the rollback encoder; plus manifest multi-doc splitting.
+- Tests → 43: a CRC-32 known-vector, a gzip↔gunzip round-trip, and a secret-payload encode→decode for the Helm revision Secret storage format.
 
 ## [0.6.0] - 2026-05-30
 

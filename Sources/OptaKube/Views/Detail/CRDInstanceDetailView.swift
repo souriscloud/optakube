@@ -33,13 +33,7 @@ struct CRDInstanceDetailView: View {
             } else if isEditing {
                 editor
             } else {
-                ScrollView {
-                    Text(yamlContent)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                }
+                YAMLTextView(text: .constant(yamlContent), isEditable: false)
             }
             if let errorMessage {
                 Text(errorMessage)
@@ -92,10 +86,7 @@ struct CRDInstanceDetailView: View {
     }
 
     private var editor: some View {
-        TextEditor(text: $editContent)
-            .font(.system(.body, design: .monospaced))
-            .scrollContentBackground(.hidden)
-            .padding(4)
+        YAMLTextView(text: $editContent)
     }
 
     // MARK: - Actions

@@ -167,7 +167,12 @@ struct HelmReleaseDetailView: View {
 
             switch tab {
             case "values": mono(latest.valuesJSON)
-            case "manifest": mono(latest.manifest.isEmpty ? "(no manifest stored)" : latest.manifest)
+            case "manifest":
+                if latest.manifest.isEmpty {
+                    mono("(no manifest stored)")
+                } else {
+                    YAMLTextView(text: .constant(latest.manifest), isEditable: false)
+                }
             case "history": historyList
             default: infoList
             }

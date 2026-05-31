@@ -29,10 +29,7 @@ struct CreateResourceView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(6)
+            YAMLTextView(text: $text)
             if let errorMessage {
                 banner(errorMessage, color: .red, icon: "exclamationmark.triangle.fill")
             } else if let successMessage {
