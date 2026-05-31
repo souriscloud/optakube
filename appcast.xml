@@ -151,7 +151,7 @@
             <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg" length="7975264" type="application/octet-stream"/>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg" length="7975264" type="application/octet-stream" sparkle:edSignature="XzVQOssBJzyX3fBOsDZ3IO5aIe3Cqyu9SMLcZv3YipEalftzLBDB+uJV0s1ydzDztAA3LPczSwKv1bhBK01ICA==" />
         </item>
     </channel>
 </rss>
