@@ -166,29 +166,18 @@ struct AppearanceSettingsView: View {
 }
 
 struct UpdatesSettingsView: View {
-    @AppStorage("updateChannel") private var channelRaw = UpdateChannel.release.rawValue
     @AppStorage("notifyPodRestarts") private var notifyPodRestarts = true
-
-    private var channel: UpdateChannel {
-        get { UpdateChannel(rawValue: channelRaw) ?? .release }
-    }
 
     var body: some View {
         Form {
-            Section("Update channel") {
-                Picker("Channel", selection: $channelRaw) {
-                    ForEach(UpdateChannel.allCases) { ch in
-                        Text(ch.displayName).tag(ch.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                Text(channelInfo)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section("Software update") {
                 Button("Check for Updates Now") {
                     UpdateController.shared.checkForUpdates(nil)
                 }
                 .disabled(!UpdateController.shared.isAvailable)
+                Text("OptaKube updates automatically via Sparkle. New stable releases are checked in the background and on launch.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Notifications") {
                 Toggle("Notify on pod restart", isOn: $notifyPodRestarts)
@@ -199,12 +188,5 @@ struct UpdatesSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-    }
-
-    private var channelInfo: String {
-        switch channel {
-        case .release: return "Stable releases only."
-        case .beta: return "Pre-release builds. May include unfinished features or bugs."
-        }
     }
 }

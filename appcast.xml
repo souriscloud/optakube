@@ -1,26 +1,141 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <channel>
-    <title>OptaKube Updates</title>
-    <link>https://raw.githubusercontent.com/souriscloud/optakube/master/appcast.xml</link>
-    <description>Most recent changes with links to updates.</description>
-    <language>en</language>
-    <item>
-      <title>Version 0.7.0</title>
-      <pubDate>Sat, 30 May 2026 22:04:06 +0200</pubDate>
-      <sparkle:version>700</sparkle:version>
-      <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[
-        <h2>OptaKube 0.7.0</h2>
-        <p>See <a href="https://github.com/souriscloud/optakube/blob/master/CHANGELOG.md">CHANGELOG</a> for details.</p>
-      ]]></description>
-      <enclosure
-        url="https://github.com/souriscloud/optakube/releases/download/v0.7.0/OptaKube-0.7.0.dmg"
-        type="application/octet-stream"
-        sparkle:edSignature="vBDMVRhurzkZIJxQTKcUr6z3GbX61pB9MQ4F9VPU55dSpSKq2+s2w2C/TfNVw74zunFInHIFyBL0KBoOZ0WsAA=="
-        length="7533637"
-      />
-    </item>
-  </channel>
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>OptaKube</title>
+        <item>
+            <title>0.7.0</title>
+            <pubDate>Sun, 31 May 2026 03:10:42 +0200</pubDate>
+            <sparkle:version>700</sparkle:version>
+            <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.7.0/OptaKube-0.7.0.dmg" length="7533637" type="application/octet-stream" sparkle:edSignature="vBDMVRhurzkZIJxQTKcUr6z3GbX61pB9MQ4F9VPU55dSpSKq2+s2w2C/TfNVw74zunFInHIFyBL0KBoOZ0WsAA=="/>
+        </item>
+        <item>
+            <title>0.6.0</title>
+            <pubDate>Sun, 31 May 2026 03:10:44 +0200</pubDate>
+            <sparkle:version>600</sparkle:version>
+            <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.6.0/OptaKube-0.6.0.dmg" length="7478281" type="application/octet-stream" sparkle:edSignature="npQ8X935solqhz/UlWm2nv42YnfVafNgVskO8lE70d5TRqYtPA96HrgMIOVLrUCSSPCuALsHRZ8WKdMQ05acBA=="/>
+        </item>
+        <item>
+            <title>0.5.0</title>
+            <pubDate>Sun, 31 May 2026 03:10:45 +0200</pubDate>
+            <sparkle:version>500</sparkle:version>
+            <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.5.0/OptaKube-0.5.0.dmg" length="7105553" type="application/octet-stream" sparkle:edSignature="sn67WMktR8wrk7I3PCF3h/b92dL4tFCINjLQdjDS8Hrvz0IWkn6TDQH1RB3cdvBqhPTwaFyqbDED4EX6a7ulBg=="/>
+        </item>
+        <item>
+            <title>0.4.5</title>
+            <pubDate>Sun, 31 May 2026 03:10:46 +0200</pubDate>
+            <sparkle:version>405</sparkle:version>
+            <sparkle:shortVersionString>0.4.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.5/OptaKube-0.4.5.dmg" length="7010992" type="application/octet-stream" sparkle:edSignature="zfyApKNoZU3Z1TFO/L+5JLpReseTOq49jJO4djGMZzXvmswqblmJR/eI3MMs15F/9KwnGV8wuqb/GcHub8h0BA=="/>
+        </item>
+        <item>
+            <title>0.4.4</title>
+            <pubDate>Sun, 31 May 2026 03:10:48 +0200</pubDate>
+            <sparkle:version>404</sparkle:version>
+            <sparkle:shortVersionString>0.4.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.4/OptaKube-0.4.4.dmg" length="7012276" type="application/octet-stream" sparkle:edSignature="cU4bjwdqon9mNkf73s5lU1/Y4SFYEnzqFqRQA7m3udujikm9RvEGnBX5if31AfHkTqr4Eb02XbZePPhmfuL1DQ=="/>
+        </item>
+        <item>
+            <title>0.4.3</title>
+            <pubDate>Sun, 31 May 2026 03:10:49 +0200</pubDate>
+            <sparkle:version>403</sparkle:version>
+            <sparkle:shortVersionString>0.4.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.3/OptaKube-0.4.3.dmg" length="7006715" type="application/octet-stream" sparkle:edSignature="UUeutOiyJE/jLSegPdw9IbbRmIfio18Xh0pRG2IANKW+gBkEyA2lw05QuUPpGQ5RSwo3WhgLBrJpRXmSzqUMDA=="/>
+        </item>
+        <item>
+            <title>0.4.2</title>
+            <pubDate>Sun, 31 May 2026 03:10:51 +0200</pubDate>
+            <sparkle:version>402</sparkle:version>
+            <sparkle:shortVersionString>0.4.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.2/OptaKube-0.4.2.dmg" length="6999940" type="application/octet-stream" sparkle:edSignature="87Hihcy3io59gMA4DeEzoz2ly5vqo0flzSEoQTJacUuMX2KdYthBEB6eftnPP+3DMjmI1DXe4NQzNpsJMEMXAg=="/>
+        </item>
+        <item>
+            <title>0.4.1</title>
+            <pubDate>Sun, 31 May 2026 03:10:52 +0200</pubDate>
+            <sparkle:version>401</sparkle:version>
+            <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.1/OptaKube-0.4.1.dmg" length="6973120" type="application/octet-stream" sparkle:edSignature="7SdMXMAaNb/a24IRjsDMFkUA9568wJokgR8xbH8CLg2ypZDjbNXEp2UwyNtonKp+8xsZ3D5dTwQEzZjeiklQCA=="/>
+        </item>
+        <item>
+            <title>0.4.0</title>
+            <pubDate>Sun, 31 May 2026 03:10:53 +0200</pubDate>
+            <sparkle:version>400</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.4.0/OptaKube-0.4.0.dmg" length="6892135" type="application/octet-stream" sparkle:edSignature="aKma6yWmQkfKjOXVOISwE1bWm0iQADtpTbveeTViAo/Cu0+x0hT4sx/YcdLT+36docWPb/DZ2Yo2pM6CESRXDw=="/>
+        </item>
+        <item>
+            <title>0.3.3</title>
+            <pubDate>Sun, 31 May 2026 03:10:55 +0200</pubDate>
+            <sparkle:version>303</sparkle:version>
+            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.3.3/OptaKube-0.3.3.dmg" length="6868472" type="application/octet-stream" sparkle:edSignature="4m2uPZ6EwPeyb/pcarZigfDme3ZLol0dWRUrQrJRfWcWT9nbG7ewHZB4RagC+Jq5/sPbkCJvXEtupiNXSzP5AQ=="/>
+        </item>
+        <item>
+            <title>0.3.2</title>
+            <pubDate>Sun, 31 May 2026 03:10:56 +0200</pubDate>
+            <sparkle:version>302</sparkle:version>
+            <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.3.2/OptaKube-0.3.2.dmg" length="6869119" type="application/octet-stream" sparkle:edSignature="7xc77I9K2ByRn/iZaw7tIjQteedyYJi4tGlq7cwPgfgo2s4IJCcY5fdB2UU2hFOetWKP6dwBRlqDeby4xr5TDg=="/>
+        </item>
+        <item>
+            <title>0.3.1</title>
+            <pubDate>Sun, 31 May 2026 03:10:58 +0200</pubDate>
+            <sparkle:version>301</sparkle:version>
+            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.3.1/OptaKube-0.3.1.dmg" length="6868603" type="application/octet-stream" sparkle:edSignature="RCz2KObyGH607m2NPjlk5Oi/gKlnf9M4PyipAaau+8Gdx8Y2AxHkcKadZ+YVsQoDwiFL6R48xS8gm2rgXPmCBQ=="/>
+        </item>
+        <item>
+            <title>0.3.0</title>
+            <pubDate>Sun, 31 May 2026 03:11:15 +0200</pubDate>
+            <sparkle:version>300</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.3.0/OptaKube-0.3.0.dmg" length="6872861" type="application/octet-stream" sparkle:edSignature="A9HYDeGDuBRKM8izSexpKU1zWKgUO+k3Xkv9oITcDSBXV7IkOu6oDhcsypJmX7OCH21XwPMRkzFYRZBMrAALBw=="/>
+        </item>
+        <item>
+            <title>0.2.0</title>
+            <pubDate>Sun, 31 May 2026 03:11:17 +0200</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.2.0/OptaKube-0.2.0.dmg" length="6864190" type="application/octet-stream" sparkle:edSignature="OpNY0Xp+XQ7WtTOC2swqF8VxM7cvhIqyAo6fuTeRXe0oJIqb1MouSSTgGl5VzFmjwNvqghBGKehECzZRoFpGCQ=="/>
+        </item>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Sun, 31 May 2026 03:11:18 +0200</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/souriscloud/optakube/releases/download/v0.1.0/OptaKube-0.1.0.dmg" length="7975264" type="application/octet-stream" sparkle:edSignature="XzVQOssBJzyX3fBOsDZ3IO5aIe3Cqyu9SMLcZv3YipEalftzLBDB+uJV0s1ydzDztAA3LPczSwKv1bhBK01ICA=="/>
+        </item>
+    </channel>
 </rss>

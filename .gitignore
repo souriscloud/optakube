@@ -9,4 +9,10 @@ DerivedData/
 *.xcodeproj
 .claude/
 scripts/download-stats.sh
-scripts/RELEASE-GUIDE.md
+
+# Release signing credentials — never commit (RELIMPR #1).
+scripts/.env
+
+# Local DMG store that feeds `generate_appcast` delta computation. Large
+# binaries; the generated appcast XML is committed, the DMGs are not.
+/releases
