@@ -11,6 +11,8 @@ struct MainWindow: View {
     @State private var showFullLogs: Bool = false
     @State private var fullLogsResource: ResourceIdentifier?
     @State private var dismissedError: String?
+    /// Mirrors the Settings slider so changing it takes effect without a relaunch.
+    @AppStorage("refreshInterval") private var refreshInterval = 10.0
 
     private struct ConnectionError: Equatable {
         let clusterName: String
@@ -205,11 +207,25 @@ struct MainWindow: View {
             }
         }
         .onAppear {
-            viewModel.startAutoRefresh()
+            viewModel.startAutoRefresh(interval: refreshInterval)
         }
         .onDisappear {
             viewModel.stopAutoRefresh()
             viewModel.saveState()
+        }
+        // Honour the Settings slider. Nothing read `refreshInterval` before, so the
+        // control silently did nothing and the interval was always the 30s default.
+        .onChange(of: refreshInterval) { _, newValue in
+            viewModel.startAutoRefresh(interval: newValue)
+        }
+        // A socket that was open when the Mac slept is usually half-open on wake: no
+        // bytes, no error, and the table quietly stops being true.
+        .task {
+            let woke = NSWorkspace.shared.notificationCenter
+                .notifications(named: NSWorkspace.didWakeNotification)
+            for await _ in woke {
+                await viewModel.restartWatches()
+            }
         }
         .onChange(of: viewModel.selectedResourceType) { _, _ in viewModel.saveState() }
         .onChange(of: viewModel.selectedNamespace) { _, _ in viewModel.saveState() }

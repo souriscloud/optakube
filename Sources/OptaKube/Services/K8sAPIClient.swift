@@ -159,7 +159,13 @@ final class K8sAPIClient: Sendable {
         self.session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
 
         let watchConfig = URLSessionConfiguration.default
-        watchConfig.timeoutIntervalForRequest = 0
+        // A watch is long-lived, so there's no overall resource deadline — but there *is*
+        // a per-read one. With both set to 0 (no timeout at all), a socket left half-open
+        // by a laptop sleep or a VPN reconnect produced no bytes and no error forever, and
+        // nothing upstream could tell that the data on screen had stopped being true.
+        // Slightly longer than the server-side `timeoutSeconds`, so a healthy watch is
+        // always closed by the server first and this only fires when the socket is gone.
+        watchConfig.timeoutIntervalForRequest = TimeInterval(Self.watchTimeoutSeconds + 60)
         watchConfig.timeoutIntervalForResource = 0
         self.watchSession = URLSession(configuration: watchConfig, delegate: delegate, delegateQueue: nil)
     }
@@ -515,18 +521,29 @@ final class K8sAPIClient: Sendable {
             return AsyncThrowingStream { $0.finish(throwing: K8sError.invalidURL) }
         }
         let separator = url.absoluteString.contains("?") ? "&" : "?"
-        guard let watchURL = URL(string: url.absoluteString + "\(separator)watch=true&resourceVersion=\(resourceVersion)&allowWatchBookmarks=true") else {
+        // `timeoutSeconds` makes the server close the watch on a schedule, exactly as
+        // client-go does. Without it a connection wedged by a laptop sleep or a VPN
+        // reconnect produces no bytes and no error indefinitely — the stream simply never
+        // says anything again, and the data on screen silently stops being true.
+        let params = "\(separator)watch=true&resourceVersion=\(resourceVersion)"
+            + "&allowWatchBookmarks=true&timeoutSeconds=\(Self.watchTimeoutSeconds)"
+        guard let watchURL = URL(string: url.absoluteString + params) else {
             return AsyncThrowingStream { $0.finish(throwing: K8sError.invalidURL) }
         }
         return streamWatch(watchURL: watchURL, as: T.self)
     }
+
+    /// How long the server should hold a watch open before closing it cleanly. The loop
+    /// reconnects, so this is invisible in the UI — it just bounds how long a dead socket
+    /// can masquerade as a healthy one.
+    static let watchTimeoutSeconds = 300
 
     /// Open a watch connection at `watchURL` and decode each streamed line as a
     /// `WatchEvent<T>`. Shared by `watch(_:resourceType:…)` and the events watch.
     /// On a 410 the stream finishes with `K8sError.watchGone` so callers can re-list.
     private func streamWatch<T: K8sResource>(watchURL: URL, as type: T.Type) -> AsyncThrowingStream<WatchEvent<T>, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     var req = URLRequest(url: watchURL)
                     req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -551,8 +568,25 @@ final class K8sAPIClient: Sendable {
                     for try await line in bytes.lines {
                         guard !line.isEmpty else { continue }
                         guard let lineData = line.data(using: .utf8) else { continue }
+
+                        // An expired resourceVersion is almost never an HTTP 410 in
+                        // practice: the server answers 200 and then sends
+                        // {"type":"ERROR","object":{"kind":"Status","code":410,…}} in the
+                        // stream. That used to be discarded — either as an unparseable
+                        // line or as an ignored ERROR event — and the stream then finished
+                        // *cleanly*, so the caller reconnected immediately with the same
+                        // dead resourceVersion, forever, without ever delivering an event.
+                        if Self.isExpiredStatusLine(lineData) {
+                            continuation.finish(throwing: K8sError.watchGone)
+                            return
+                        }
+
                         do {
                             let event = try Self.jsonDecoder.decode(WatchEvent<T>.self, from: lineData)
+                            if event.type == .ERROR {
+                                continuation.finish(throwing: K8sError.watchGone)
+                                return
+                            }
                             continuation.yield(event)
                         } catch {
                             // Skip unparseable lines (e.g. error objects)
@@ -564,7 +598,27 @@ final class K8sAPIClient: Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            // Without this the producer is orphaned: cancelling the consumer ends the
+            // sequence but leaves this unstructured Task draining bytes.lines against a
+            // session configured with no timeouts. Every sidebar click leaked one live
+            // HTTP/2 stream that the API server would only close 30–60 minutes later.
+            continuation.onTermination = { _ in producer.cancel() }
         }
+    }
+
+    /// True when a watch stream line is a `Status` reporting an expired resourceVersion.
+    static func isExpiredStatusLine(_ line: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+            return false
+        }
+        // Either the bare Status, or a watch event wrapping one.
+        let candidates: [[String: Any]] = [json, json["object"] as? [String: Any] ?? [:]]
+        for candidate in candidates {
+            guard candidate["kind"] as? String == "Status" else { continue }
+            if let code = candidate["code"] as? Int, code == 410 { return true }
+            if let reason = candidate["reason"] as? String, reason == "Expired" { return true }
+        }
+        return false
     }
 
     func get<T: K8sResource>(_ type: T.Type, resourceType: ResourceType, name: String, namespace: String?) async throws -> T {
@@ -818,7 +872,7 @@ final class K8sAPIClient: Sendable {
     /// Stream logs with server-side timestamps. Each line is prefixed with RFC3339 timestamp.
     func streamLogs(namespace: String, podName: String, container: String?, tailLines: Int = 1000, previous: Bool = false) -> AsyncThrowingStream<(Date, String), Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     var urlString = "\(connection.server)/api/v1/namespaces/\(namespace)/pods/\(podName)/log?follow=\(previous ? "false" : "true")&tailLines=\(tailLines)&timestamps=true"
                     if let c = container {
@@ -857,6 +911,27 @@ final class K8sAPIClient: Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            // As with streamWatch: closing the log view must actually stop the follow,
+            // rather than leaving an unstructured task streaming a chatty pod's output.
+            continuation.onTermination = { _ in producer.cancel() }
+        }
+    }
+
+    /// Surfaces the reason a log stream failed. `streamLogs` reports a bare "Log stream
+    /// failed", which hides the common cases — a 400 for "container X is not valid for
+    /// pod", a 400 for "previous terminated container not found" behind the Previous
+    /// toggle, or a 403 on pods/log.
+    func logStreamFailureReason(namespace: String, podName: String, container: String?,
+                                previous: Bool) async -> String? {
+        var urlString = "\(connection.server)/api/v1/namespaces/\(namespace)/pods/\(podName)/log?tailLines=1"
+        if let container { urlString += "&container=\(container)" }
+        if previous { urlString += "&previous=true" }
+        guard let url = URL(string: urlString) else { return nil }
+        do {
+            _ = try await request(url: url)
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 

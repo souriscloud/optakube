@@ -143,6 +143,25 @@ final class AppViewModel: Identifiable {
     var errorMessage: String?
     var lastRefreshTime: Date?
 
+    /// Why the last list attempt failed, per cluster. Without this a 403 on Secrets was
+    /// indistinguishable from an genuinely empty namespace: the table just rendered its
+    /// friendly "No resources found" state and the user concluded the cluster was empty.
+    var resourceLoadErrors: [String: String] = [:]
+
+    /// Liveness of each cluster's watch. Previously nothing in the UI could express
+    /// "updates have stopped" — `connectionStatuses` is only written by connect/disconnect,
+    /// so a dead watch still showed a green dot and an ageing "last refresh" timestamp.
+    var watchHealth: [String: WatchHealth] = [:]
+
+    enum WatchHealth: Equatable {
+        /// Streaming events normally.
+        case live
+        /// Lost the stream and retrying; `attempt` counts consecutive failures.
+        case reconnecting(attempt: Int)
+        /// Gave up. Data is being polled instead, and may be behind.
+        case stale(reason: String)
+    }
+
     // Note: these are `internal` (not `private`) because the watch/resources logic
     // lives in `AppViewModel+Watch.swift` / `AppViewModel+Resources.swift`. Stored
     // properties can't live in extensions, and `private` is file-scoped, so cross-file

@@ -23,9 +23,17 @@ extension AppViewModel {
         do {
             let items = try await client.listCustomResources(crd: crd, namespace: crd.isNamespaced ? selectedNamespace : nil)
             let resources = items.map { GenericK8sResource(raw: $0, crd: crd) }
-            await MainActor.run { customResources[clusterId] = resources }
+            await MainActor.run {
+                customResources[clusterId] = resources
+                resourceLoadErrors.removeValue(forKey: clusterId)
+                errorMessage = nil
+            }
         } catch {
-            await MainActor.run { errorMessage = error.localizedDescription }
+            let message = error.localizedDescription
+            await MainActor.run {
+                errorMessage = message
+                resourceLoadErrors[clusterId] = message
+            }
         }
         await MainActor.run { isLoading = false; lastRefreshTime = Date() }
     }
@@ -47,9 +55,39 @@ extension AppViewModel {
     }
 
     func loadResources(for clusterId: String) async {
-        guard let client = activeClients[clusterId] else { return }
-        stopWatch()
+        guard activeClients[clusterId] != nil else { return }
+        // Only this cluster's watch. `stopWatch()` cancelled *every* cluster's watch and
+        // cleared all resourceVersions, so `refresh()` looping over clusters serially left
+        // only the last one with live updates — reintroducing the single-watch bug the
+        // per-cluster watchTasks dictionary exists to fix.
+        stopWatch(for: clusterId)
         await MainActor.run { isLoading = true }
+
+        await fetchList(for: clusterId)
+
+        await MainActor.run { isLoading = false; lastRefreshTime = Date() }
+
+        // Fetch metrics for resource types that display them
+        if [.pods, .nodes].contains(selectedResourceType) {
+            await fetchMetrics(for: clusterId)
+        }
+
+        // Start watching for live updates
+        startWatch(for: clusterId)
+    }
+
+    /// Re-lists without touching the watch registration.
+    ///
+    /// Used by the watch loop when the API server reports the resourceVersion has expired:
+    /// it needs a fresh list and a usable resourceVersion, but must not cancel or restart
+    /// the very task it is running on — which is what calling `loadResources` would do.
+    func relistForWatchRestart(for clusterId: String) async {
+        await fetchList(for: clusterId)
+        await MainActor.run { lastRefreshTime = Date() }
+    }
+
+    private func fetchList(for clusterId: String) async {
+        guard let client = activeClients[clusterId] else { return }
 
         do {
             let ns = selectedNamespace
@@ -155,19 +193,20 @@ extension AppViewModel {
                 let r = try await client.listWithVersion(ValidatingWebhookConfiguration.self, resourceType: .validatingWebhookConfigurations)
                 await MainActor.run { validatingWebhookConfigurations[clusterId] = r.items; resourceVersions[clusterId] = r.resourceVersion }
             }
+            // Clear on success. `errorMessage` was never set back to nil anywhere, so a
+            // single transient failure pinned a truncated error to the status bar for the
+            // window's entire lifetime, sitting next to perfectly healthy data.
+            await MainActor.run {
+                resourceLoadErrors.removeValue(forKey: clusterId)
+                errorMessage = nil
+            }
         } catch {
-            await MainActor.run { errorMessage = error.localizedDescription }
+            let message = error.localizedDescription
+            await MainActor.run {
+                errorMessage = message
+                resourceLoadErrors[clusterId] = message
+            }
         }
-
-        await MainActor.run { isLoading = false; lastRefreshTime = Date() }
-
-        // Fetch metrics for resource types that display them
-        if [.pods, .nodes].contains(selectedResourceType) {
-            await fetchMetrics(for: clusterId)
-        }
-
-        // Start watching for live updates on core resource types
-        startWatch(for: clusterId)
     }
 
     // MARK: - Metrics
