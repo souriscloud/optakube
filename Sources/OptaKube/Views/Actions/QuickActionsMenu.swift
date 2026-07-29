@@ -4,12 +4,16 @@ struct QuickActionsMenu: View {
     @Environment(AppViewModel.self) private var viewModel
     let resource: ResourceIdentifier
     @State private var showDeleteConfirmation = false
+    @State private var showCascadeDeleteConfirmation = false
+    @State private var showDrainConfirmation = false
+    @State private var showEvictConfirmation = false
     @State private var showScaleDialog = false
     @State private var showPortForwardSheet = false
     @State private var showRollbackSheet = false
     @State private var showDebugContainerSheet = false
     @State private var scaleReplicas = 1
     @State private var actionError: String?
+    @State private var actionNotice: String?
 
     var body: some View {
         Menu {
@@ -21,7 +25,13 @@ struct QuickActionsMenu: View {
             }
 
             if canScale {
-                Button { showScaleDialog = true } label: {
+                Button {
+                    // Seed from the live count. This used to open at a hardcoded 1, so
+                    // pressing the dialog's default button on a 10-replica Deployment
+                    // scaled it straight down to 1.
+                    scaleReplicas = liveReplicas
+                    showScaleDialog = true
+                } label: {
                     Label("Scale", systemImage: "arrow.up.arrow.down")
                 }
             }
@@ -53,7 +63,7 @@ struct QuickActionsMenu: View {
                 Button { showDebugContainerSheet = true } label: {
                     Label("Debug Container", systemImage: "ladybug")
                 }
-                Button { Task { await evictPod() } } label: {
+                Button { showEvictConfirmation = true } label: {
                     Label("Evict", systemImage: "arrow.uturn.right")
                 }
             }
@@ -73,14 +83,14 @@ struct QuickActionsMenu: View {
                 Button { Task { await cordonNode(unschedule: false) } } label: {
                     Label("Uncordon", systemImage: "checkmark.circle")
                 }
-                Button { Task { await drainNode() } } label: {
+                Button { showDrainConfirmation = true } label: {
                     Label("Drain", systemImage: "arrow.down.to.line.compact")
                 }
             }
 
             // --- Job actions ---
             if resource.resourceType == .jobs {
-                Button { Task { await performDelete(); await viewModel.refresh() } } label: {
+                Button { showCascadeDeleteConfirmation = true } label: {
                     Label("Delete & Cascade", systemImage: "trash.slash")
                 }
             }
@@ -124,8 +134,33 @@ struct QuickActionsMenu: View {
         } message: {
             Text("This action cannot be undone.")
         }
+        .confirmationDialog("Delete \(resource.name) and its pods?",
+                            isPresented: $showCascadeDeleteConfirmation) {
+            Button("Delete & Cascade", role: .destructive) {
+                Task { await performDelete() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes the Job and every pod it created. This action cannot be undone.")
+        }
+        .confirmationDialog("Evict \(resource.name)?", isPresented: $showEvictConfirmation) {
+            Button("Evict", role: .destructive) {
+                Task { await evictPod() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The pod is deleted, subject to any PodDisruptionBudget. Its controller decides whether to replace it.")
+        }
+        .confirmationDialog("Drain \(resource.name)?", isPresented: $showDrainConfirmation) {
+            Button("Cordon & Drain", role: .destructive) {
+                Task { await drainNode() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This marks the node unschedulable and evicts every pod on it except DaemonSet and static pods. Workloads will restart elsewhere.")
+        }
         .sheet(isPresented: $showScaleDialog) {
-            ScaleDialog(resourceName: resource.name, currentReplicas: scaleReplicas) { replicas in
+            ScaleDialog(resourceName: resource.name, initialReplicas: scaleReplicas) { replicas in
                 Task { await performScale(replicas: replicas) }
             }
         }
@@ -137,6 +172,24 @@ struct QuickActionsMenu: View {
         }
         .sheet(isPresented: $showDebugContainerSheet) {
             DebugContainerSheet(resource: resource)
+        }
+        // Both outcomes are reported now. Every action below used to be a bare `try?`:
+        // on an RBAC denial the list refreshed unchanged and nothing was said, which is
+        // indistinguishable from the action having been accepted.
+        .alert("Action failed", isPresented: .constant(actionError != nil)) {
+            Button("Copy details") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(actionError ?? "", forType: .string)
+                actionError = nil
+            }
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+        .alert("Done", isPresented: .constant(actionNotice != nil)) {
+            Button("OK", role: .cancel) { actionNotice = nil }
+        } message: {
+            Text(actionNotice ?? "")
         }
     }
 
@@ -154,99 +207,144 @@ struct QuickActionsMenu: View {
         viewModel.cronJobs[resource.clusterId]?.first { $0.name == resource.name }?.isSuspended ?? false
     }
 
+    /// The replica count the cluster currently reports, used to seed the Scale dialog.
+    private var liveReplicas: Int {
+        switch resource.resourceType {
+        case .deployments:
+            return viewModel.deployments[resource.clusterId]?
+                .first { $0.name == resource.name }?.replicas ?? 1
+        case .statefulSets:
+            return viewModel.statefulSets[resource.clusterId]?
+                .first { $0.name == resource.name }?.replicas ?? 1
+        case .replicaSets:
+            return viewModel.replicaSets[resource.clusterId]?
+                .first { $0.name == resource.name }?.replicas ?? 1
+        default:
+            return 1
+        }
+    }
+
     // MARK: - Actions
+
+    /// Runs a mutating action and reports the outcome either way, then resyncs.
+    private func run(_ succeeded: String, _ body: () async throws -> Void) async {
+        do {
+            try await body()
+            actionNotice = succeeded
+        } catch {
+            actionError = error.localizedDescription
+        }
+        await viewModel.refresh()
+    }
 
     private func performRestart() async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        try? await client.restart(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace)
-        await viewModel.refresh()
+        await run("Restarted \(resource.name).") {
+            try await client.restart(resourceType: resource.resourceType,
+                                     name: resource.name, namespace: resource.namespace)
+        }
     }
 
     private func performScale(replicas: Int) async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        try? await client.scale(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace, replicas: replicas)
-        await viewModel.refresh()
+        await run("Scaled \(resource.name) to \(replicas) replica\(replicas == 1 ? "" : "s").") {
+            try await client.scale(resourceType: resource.resourceType, name: resource.name,
+                                   namespace: resource.namespace, replicas: replicas)
+        }
     }
 
     private func performDelete() async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        try? await client.delete(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace)
-        await viewModel.refresh()
+        await run("Deleted \(resource.name).") {
+            try await client.delete(resourceType: resource.resourceType,
+                                    name: resource.name, namespace: resource.namespace)
+        }
     }
 
     private func triggerCronJob() async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        try? await client.triggerCronJob(name: resource.name, namespace: resource.namespace)
-        await viewModel.refresh()
+        await run("Triggered a job from \(resource.name).") {
+            try await client.triggerCronJob(name: resource.name, namespace: resource.namespace)
+        }
     }
 
     private func toggleSuspendCronJob() async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        try? await client.suspendCronJob(name: resource.name, namespace: resource.namespace, suspend: !isCronJobSuspended)
-        await viewModel.refresh()
+        let suspend = !isCronJobSuspended
+        await run("\(suspend ? "Suspended" : "Resumed") \(resource.name).") {
+            try await client.suspendCronJob(name: resource.name,
+                                            namespace: resource.namespace, suspend: suspend)
+        }
     }
 
     private func evictPod() async {
-        guard let client = viewModel.activeClients[resource.clusterId],
-              let ns = resource.namespace else { return }
-        let eviction: [String: Any] = [
-            "apiVersion": "policy/v1",
-            "kind": "Eviction",
-            "metadata": ["name": resource.name, "namespace": ns]
-        ]
-        if let body = try? JSONSerialization.data(withJSONObject: eviction) {
-            guard let url = URL(string: "\(client.connection.server)/api/v1/namespaces/\(ns)/pods/\(resource.name)/eviction") else { return }
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.httpBody = body
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let token = try? await client.authProvider.token() {
-                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            _ = try? await URLSession.shared.data(for: req)
+        guard let client = viewModel.activeClients[resource.clusterId] else { return }
+        guard let ns = resource.namespace else {
+            actionError = "This pod has no namespace, so it cannot be evicted."
+            return
         }
-        await viewModel.refresh()
+        await run("Evicted \(resource.name).") {
+            try await client.evict(podName: resource.name, namespace: ns)
+        }
     }
 
     private func cordonNode(unschedule: Bool) async {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        let patchBody: [String: Any] = ["spec": ["unschedulable": unschedule]]
-        if let body = try? JSONSerialization.data(withJSONObject: patchBody) {
-            try? await client.patch(resourceType: .nodes, name: resource.name, namespace: nil, body: body)
+        await run("\(unschedule ? "Cordoned" : "Uncordoned") \(resource.name).") {
+            let body = try JSONSerialization.data(withJSONObject: ["spec": ["unschedulable": unschedule]])
+            try await client.patch(resourceType: .nodes, name: resource.name,
+                                   namespace: nil, body: body)
         }
-        await viewModel.refresh()
     }
 
     private func drainNode() async {
-        // Drain = cordon + evict all pods
-        await cordonNode(unschedule: true)
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        if let pods = try? await client.list(Pod.self, resourceType: .pods, namespace: nil) {
+
+        // Drain = cordon, then evict everything that isn't managed by a DaemonSet or
+        // mirrored from a static manifest. Report per-pod failures rather than
+        // discarding them: a PodDisruptionBudget blocking an eviction is the normal
+        // case, and the user needs to know the node isn't actually clear.
+        var failures: [String] = []
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["spec": ["unschedulable": true]])
+            try await client.patch(resourceType: .nodes, name: resource.name, namespace: nil, body: body)
+        } catch {
+            actionError = "Couldn't cordon \(resource.name), so drain was not attempted.\n\n"
+                + error.localizedDescription
+            await viewModel.refresh()
+            return
+        }
+
+        var evicted = 0
+        do {
+            let pods = try await client.list(Pod.self, resourceType: .pods, namespace: nil)
             let nodePods = pods.filter { $0.nodeName == resource.name }
             for pod in nodePods {
                 guard let ns = pod.metadata.namespace else { continue }
-                // Skip DaemonSet pods and mirror pods
                 let isDaemonSet = pod.metadata.ownerReferences?.contains { $0.kind == "DaemonSet" } ?? false
                 let isMirror = pod.metadata.annotations?["kubernetes.io/config.mirror"] != nil
                 if isDaemonSet || isMirror { continue }
-
-                let eviction: [String: Any] = [
-                    "apiVersion": "policy/v1",
-                    "kind": "Eviction",
-                    "metadata": ["name": pod.name, "namespace": ns]
-                ]
-                if let body = try? JSONSerialization.data(withJSONObject: eviction) {
-                    guard let url = URL(string: "\(client.connection.server)/api/v1/namespaces/\(ns)/pods/\(pod.name)/eviction") else { continue }
-                    var req = URLRequest(url: url)
-                    req.httpMethod = "POST"
-                    req.httpBody = body
-                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    if let token = try? await client.authProvider.token() {
-                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                    }
-                    _ = try? await URLSession.shared.data(for: req)
+                do {
+                    try await client.evict(podName: pod.name, namespace: ns)
+                    evicted += 1
+                } catch {
+                    failures.append("\(ns)/\(pod.name): \(error.localizedDescription)")
                 }
             }
+        } catch {
+            actionError = "Cordoned \(resource.name), but couldn't list its pods to evict them.\n\n"
+                + error.localizedDescription
+            await viewModel.refresh()
+            return
+        }
+
+        if failures.isEmpty {
+            actionNotice = "Drained \(resource.name) — cordoned and evicted \(evicted) pod\(evicted == 1 ? "" : "s")."
+        } else {
+            actionError = "Cordoned \(resource.name) and evicted \(evicted) pod\(evicted == 1 ? "" : "s"), "
+                + "but \(failures.count) could not be evicted:\n\n"
+                + failures.prefix(10).joined(separator: "\n")
+                + (failures.count > 10 ? "\n… and \(failures.count - 10) more." : "")
         }
         await viewModel.refresh()
     }
@@ -256,25 +354,39 @@ struct QuickActionsMenu: View {
 
 struct ScaleDialog: View {
     let resourceName: String
-    @State var currentReplicas: Int
+    /// The cluster's current replica count. `@State` is deliberately not initialised
+    /// from this: SwiftUI only honours a `@State` initial value the first time a view
+    /// identity appears, so a reused sheet would keep a stale seed.
+    let initialReplicas: Int
     let onScale: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var edited: Int?
+
+    private var value: Int { edited ?? initialReplicas }
 
     var body: some View {
         VStack(spacing: 16) {
             Text("Scale \(resourceName)")
                 .font(.headline)
-            Stepper("Replicas: \(currentReplicas)", value: $currentReplicas, in: 0...100)
-                .frame(width: 200)
+            Text("Currently \(initialReplicas) replica\(initialReplicas == 1 ? "" : "s")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Stepper("Replicas: \(value)",
+                    value: Binding(get: { value }, set: { edited = $0 }),
+                    in: 0...500)
+                .frame(width: 220)
             HStack {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Scale") { onScale(currentReplicas); dismiss() }
+                Button(value == 0 ? "Scale to zero" : "Scale") { onScale(value); dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    // Nothing to do when untouched — and it keeps a reflexive Return
+                    // from being a production change.
+                    .disabled(value == initialReplicas)
             }
         }
         .padding()
-        .frame(width: 300)
+        .frame(width: 320)
     }
 }
 
@@ -321,7 +433,11 @@ struct PortForwardSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Available ports:").font(.caption).foregroundStyle(.secondary)
                         HStack {
-                            ForEach(ports, id: \.containerPort) { port in
+                            // Keyed by position, not by containerPort: a sidecar can
+                            // expose the same port as the app, and one container may
+                            // legally declare the same port for TCP and UDP. Duplicate
+                            // ForEach IDs are undefined behaviour in SwiftUI.
+                            ForEach(Array(ports.enumerated()), id: \.offset) { _, port in
                                 Button("\(port.containerPort)") {
                                     remotePort = "\(port.containerPort)"
                                     if localPort == "8080" || localPort.isEmpty {
@@ -358,18 +474,30 @@ struct PortForwardSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Active Forwards").font(.caption).foregroundStyle(.secondary)
                     ForEach(pfm.activeForwards) { pf in
-                        HStack {
-                            Circle()
-                                .fill(pf.isRunning ? .green : .red)
-                                .frame(width: 6, height: 6)
-                            Text(pf.displayName)
-                                .font(.caption)
-                            Spacer()
-                            Button { pfm.remove(pf) } label: {
-                                Image(systemName: "xmark.circle")
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Circle()
+                                    .fill(pf.isRunning ? .green : .red)
+                                    .frame(width: 6, height: 6)
+                                Text(pf.displayName)
                                     .font(.caption)
+                                Spacer()
+                                Button { pfm.remove(pf) } label: {
+                                    Image(systemName: "xmark.circle")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+                            // kubectl's own words — "address already in use", "unable to
+                            // forward port because pod is not running". Captured all
+                            // along, just never shown anywhere.
+                            if let err = pf.errorMessage, !err.isEmpty {
+                                Text(err)
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
@@ -381,22 +509,44 @@ struct PortForwardSheet: View {
 
     private func startPortForward() {
         guard let lp = Int(localPort), let rp = Int(remotePort) else {
-            errorMsg = "Invalid port numbers"
+            errorMsg = "Ports must be numbers."
             return
         }
-        guard let client = viewModel.activeClients[resource.clusterId] else { return }
+        guard (1...65535).contains(lp), (1...65535).contains(rp) else {
+            errorMsg = "Ports must be between 1 and 65535."
+            return
+        }
+        guard let client = viewModel.activeClients[resource.clusterId] else {
+            errorMsg = "Not connected to this cluster."
+            return
+        }
         let conn = client.connection
 
         let pf = conn.portForward(
             namespace: resource.namespace ?? "default",
-            podName: resource.name,
+            name: resource.name,
+            resourceType: resource.resourceType,
             localPort: lp,
             remotePort: rp,
             kubeconfigPath: conn.kubeconfigPath,
             context: conn.contextName
         )
+        errorMsg = nil
         PortForwardManager.shared.add(pf)
-        dismiss()
+
+        // Hold the sheet open briefly. kubectl reports "address already in use" or
+        // "pod is not running" almost immediately, and dismissing straight away meant a
+        // forward that never came up looked like it had succeeded.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            if let err = pf.errorMessage, !err.isEmpty {
+                errorMsg = err
+            } else if !pf.isRunning {
+                errorMsg = "The forward stopped immediately. Check that local port \(lp) is free and the target is running."
+            } else {
+                dismiss()
+            }
+        }
     }
 }
 
@@ -425,7 +575,10 @@ struct RollbackSheet: View {
             } else {
                 ScrollView {
                     VStack(spacing: 1) {
-                        ForEach(replicaSets, id: \.revision) { rs in
+                        // Position-keyed: `revision` falls back to 0 for every ReplicaSet
+                        // missing the deployment.kubernetes.io/revision annotation, which
+                        // would give several rows the same ID.
+                        ForEach(Array(replicaSets.enumerated()), id: \.offset) { _, rs in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Revision \(rs.revision)")

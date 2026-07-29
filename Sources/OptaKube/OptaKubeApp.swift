@@ -227,6 +227,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        .terminateNow
+        // macOS does not reap a process's children on exit, so without this every
+        // `kubectl port-forward` survived Cmd-Q with its local port still bound — and
+        // the next launch failed with "address already in use".
+        PortForwardManager.shared.stopAll()
+        return .terminateNow
     }
 }

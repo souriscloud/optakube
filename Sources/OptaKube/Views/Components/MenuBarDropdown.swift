@@ -44,7 +44,7 @@ struct MenuBarDropdownView: View {
             Divider()
             Section("Port Forwards") {
                 ForEach(pfManager.activeForwards) { pf in
-                    Button("\(pf.podName) — localhost:\(pf.localPort) → \(pf.remotePort)") {
+                    Button("\(pf.displayLabel) — localhost:\(pf.localPort) → \(pf.remotePort)") {
                         pfManager.remove(pf)
                     }
                 }

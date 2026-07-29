@@ -62,35 +62,8 @@ jobs:
           [ "$plist_build" = "$expected_build" ] \
             || { echo "::error::CFBundleVersion ($plist_build) != derived build ($expected_build)"; exit 1; }
 
+      # A malformed appcast, or a newest item that is unsigned or points at the wrong
+      # version, breaks auto-update for every existing install at once — and the repo
+      # itself is the feed, so a bad commit here is published immediately.
       - name: Appcast is well-formed and matches the shipped version
-        run: |
-          set -euo pipefail
-          xmllint --noout appcast.xml \
-            || { echo "::error::appcast.xml is not well-formed XML"; exit 1; }
-
-          plist_version=$(plutil -extract CFBundleShortVersionString raw Sources/OptaKube/Info.plist)
-
-          # Highest sparkle:version wins; the file is newest-first today but don't rely on order.
-          newest_build=$(xmllint --xpath '//item/@sparkle:version' \
-            --nsargs sparkle http://www.andymatuschak.org/xml-namespaces/sparkle appcast.xml 2>/dev/null \
-            | tr ' ' '\n' | sed -n 's/.*="\([0-9]*\)".*/\1/p' | sort -n | tail -1) || newest_build=""
-
-          if [ -z "$newest_build" ]; then
-            # Fall back to plain grep if the xpath/nsargs form isn't supported by this libxml2.
-            newest_build=$(grep -o 'sparkle:version="[0-9]*"' appcast.xml \
-              | sed 's/[^0-9]//g' | sort -n | tail -1)
-          fi
-
-          newest_short=$(grep -o 'sparkle:shortVersionString="[^"]*"' appcast.xml \
-            | sed 's/.*="\([^"]*\)".*/\1/' | head -1)
-
-          echo "appcast newest: $newest_short (build $newest_build)  Info.plist: $plist_version"
-
-          # Every published enclosure must carry a signature and a length, or Sparkle
-          # rejects the update for users who have already installed the app.
-          enclosures=$(grep -c '<enclosure' appcast.xml)
-          signed=$(grep -c 'sparkle:edSignature=' appcast.xml)
-          lengths=$(grep -c 'length=' appcast.xml)
-          echo "enclosures=$enclosures signed=$signed lengths=$lengths"
-          [ "$enclosures" -eq "$lengths" ] \
-            || { echo "::error::$enclosures enclosures but only $lengths length attributes"; exit 1; }
+        run: python3 .github/scripts/check_appcast.py

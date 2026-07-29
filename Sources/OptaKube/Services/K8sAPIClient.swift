@@ -13,11 +13,51 @@ enum K8sError: Error, LocalizedError {
         switch self {
         case .invalidURL: return "Invalid URL"
         case .authFailed(let msg): return "Auth failed: \(msg)"
-        case .requestFailed(let code, let msg): return "HTTP \(code): \(msg)"
+        case .requestFailed(let code, let msg): return Self.describe(code: code, message: msg)
         case .decodingFailed(let msg): return "Decoding failed: \(msg)"
         case .connectionFailed(let msg): return "Connection failed: \(msg)"
         case .watchGone: return "Resource version expired"
         }
+    }
+
+    /// Turns an API-server status code into a sentence a user can act on. 401 and 403
+    /// are the two failures people actually hit — expired SSO/exec credentials and
+    /// missing RBAC — and they used to be indistinguishable truncated JSON blobs.
+    private static func describe(code: Int, message: String) -> String {
+        let detail = message.isEmpty ? "" : " \(message)"
+        switch code {
+        case 401:
+            return "Credentials expired or invalid (401).\(detail) Re-authenticate (for example, re-run your cloud login) and retry."
+        case 403:
+            return "Not permitted (403).\(detail)"
+        case 404:
+            return "Not found (404).\(detail)"
+        case 409:
+            return "Conflict (409) — the resource changed on the server since it was read.\(detail)"
+        case 410:
+            return "Expired (410) — the data was too old to continue from; reloading.\(detail)"
+        case 422:
+            return "Rejected by the server (422).\(detail)"
+        case 429:
+            return "Rate limited by the API server (429).\(detail)"
+        case 500...599:
+            return "API server error (\(code)).\(detail)"
+        default:
+            return "HTTP \(code).\(detail)"
+        }
+    }
+
+    /// Kubernetes reports failures as a `Status` object whose `message` is the
+    /// human-readable part. Prefer it over dumping the raw JSON body at the user.
+    static func humanMessage(from data: Data, statusCode: Int) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let message = json["message"] as? String, !message.isEmpty { return message }
+            if let reason = json["reason"] as? String, !reason.isEmpty { return reason }
+        }
+        let raw = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if raw.isEmpty { return "" }
+        return raw.count > 400 ? String(raw.prefix(400)) + "…" : raw
     }
 }
 
@@ -277,6 +317,27 @@ final class K8sAPIClient: Sendable {
     func deleteByPath(_ path: String) async throws {
         guard let url = URL(string: connection.server + path) else { throw K8sError.invalidURL }
         _ = try await request(url: url, method: "DELETE")
+    }
+
+    /// Evict a pod via the eviction subresource, so PodDisruptionBudgets are honoured.
+    ///
+    /// This goes through `request()` deliberately: earlier callers built their own
+    /// `URLRequest` and sent it on `URLSession.shared`, which has none of this
+    /// connection's TLS configuration — no kubeconfig CA anchor and no client
+    /// `SecIdentity`. On every client-certificate cluster (kind, k3s, Rancher, most
+    /// on-prem) that request went out anonymous and was rejected.
+    func evict(podName: String, namespace: String) async throws {
+        let eviction: [String: Any] = [
+            "apiVersion": "policy/v1",
+            "kind": "Eviction",
+            "metadata": ["name": podName, "namespace": namespace],
+        ]
+        let body = try JSONSerialization.data(withJSONObject: eviction)
+        guard let url = URL(string: connection.server
+                            + "/api/v1/namespaces/\(namespace)/pods/\(podName)/eviction") else {
+            throw K8sError.invalidURL
+        }
+        _ = try await request(url: url, method: "POST", body: body)
     }
 
     /// Fetch the backing Secrets for one Helm release (all revisions).
@@ -872,6 +933,11 @@ final class K8sAPIClient: Sendable {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        // The delegate only clears this on a *successful* CA evaluation, so without an
+        // explicit reset one early TLS rejection would keep re-labelling every later
+        // timeout or connection-refused on this client as a certificate problem.
+        trustDelegate.clearLastTLSError()
+
         let data: Data
         let response: URLResponse
         do {
@@ -883,8 +949,8 @@ final class K8sAPIClient: Sendable {
             throw K8sError.connectionFailed("Invalid response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw K8sError.requestFailed(http.statusCode, body)
+            throw K8sError.requestFailed(http.statusCode,
+                                         K8sError.humanMessage(from: data, statusCode: http.statusCode))
         }
         return data
     }
@@ -928,6 +994,11 @@ final class TLSTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable 
     }
     private func setLastTLSError(_ value: String?) {
         lock.lock(); _lastTLSError = value; lock.unlock()
+    }
+    /// Called at the start of every request so a stale reason can't mislabel a later,
+    /// unrelated transport failure.
+    func clearLastTLSError() {
+        setLastTLSError(nil)
     }
 
     init(connection: ClusterConnection, clientIdentity: SecIdentity?, clientCertificate: SecCertificate?) {

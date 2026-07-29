@@ -19,10 +19,22 @@ struct ClusterConnection: Identifiable, Hashable {
 }
 
 extension ClusterConnection {
-    func portForward(namespace: String, podName: String, localPort: Int, remotePort: Int, kubeconfigPath: String?, context: String?) -> PortForwardProcess {
-        PortForwardProcess(
+    /// Builds a port-forward for a kind-qualified target. `resourceType` decides the
+    /// kubectl prefix — a bare name is resolved as a pod, so Services need `service/`.
+    func portForward(namespace: String, name: String, resourceType: ResourceType,
+                     localPort: Int, remotePort: Int,
+                     kubeconfigPath: String?, context: String?) -> PortForwardProcess {
+        let kind: String
+        switch resourceType {
+        case .services: kind = "service"
+        case .deployments: kind = "deployment"
+        case .statefulSets: kind = "statefulset"
+        default: kind = "pod"
+        }
+        return PortForwardProcess(
             namespace: namespace,
-            podName: podName,
+            target: "\(kind)/\(name)",
+            displayLabel: name,
             localPort: localPort,
             remotePort: remotePort,
             kubeconfigPath: kubeconfigPath,
