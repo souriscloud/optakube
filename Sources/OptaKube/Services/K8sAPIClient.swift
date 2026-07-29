@@ -137,6 +137,10 @@ final class K8sAPIClient: Sendable {
             self.authProvider = ExecAuthProvider(command: command, args: args, env: env)
         case .none:
             self.authProvider = NoAuthProvider()
+        case .unsupported(let reason):
+            // Fail with the reason instead of going out anonymous and returning a 401
+            // that says nothing about the kubeconfig being the problem.
+            self.authProvider = UnsupportedAuthProvider(reason: reason)
         }
 
         // Pre-load client identity for TLS (client-certificate auth only).
@@ -920,7 +924,24 @@ final class K8sAPIClient: Sendable {
 
     // MARK: - HTTP
 
-    private func request(url: URL, method: String = "GET", body: Data? = nil, contentType: String = "application/json") async throws -> Data {
+    private func request(url: URL, method: String = "GET", body: Data? = nil,
+                         contentType: String = "application/json") async throws -> Data {
+        do {
+            return try await send(url: url, method: method, body: body, contentType: contentType)
+        } catch K8sError.requestFailed(401, let message) {
+            // A cached exec token can expire between the validity check and the request
+            // landing. Re-acquire once and retry rather than surfacing a 401 the user can
+            // only clear by restarting the app.
+            await authProvider.invalidate()
+            do {
+                return try await send(url: url, method: method, body: body, contentType: contentType)
+            } catch K8sError.requestFailed(401, let retryMessage) {
+                throw K8sError.requestFailed(401, retryMessage.isEmpty ? message : retryMessage)
+            }
+        }
+    }
+
+    private func send(url: URL, method: String, body: Data?, contentType: String) async throws -> Data {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.httpBody = body

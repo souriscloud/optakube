@@ -9,12 +9,32 @@ struct ClusterConnection: Identifiable, Hashable {
     let authInfo: AuthInfo
     let certificateAuthorityData: Data?
     let insecureSkipTLS: Bool
+    /// True when this is the kubeconfig's `current-context` — the one kubectl would use.
+    let isCurrentContext: Bool
+
+    init(id: String, name: String, contextName: String, server: String,
+         defaultNamespace: String?, authInfo: AuthInfo, certificateAuthorityData: Data?,
+         insecureSkipTLS: Bool, isCurrentContext: Bool = false) {
+        self.id = id
+        self.name = name
+        self.contextName = contextName
+        self.server = server
+        self.defaultNamespace = defaultNamespace
+        self.authInfo = authInfo
+        self.certificateAuthorityData = certificateAuthorityData
+        self.insecureSkipTLS = insecureSkipTLS
+        self.isCurrentContext = isCurrentContext
+    }
 
     enum AuthInfo: Hashable {
         case token(String)
         case clientCertificate(certData: Data, keyData: Data)
         case exec(command: String, args: [String], env: [String: String])
         case none
+        /// A kubeconfig auth mode this app can't perform (`auth-provider`, basic auth,
+        /// and so on). Carried explicitly so the UI can say which one, instead of
+        /// falling through to `.none` and failing later with a bare 401.
+        case unsupported(String)
     }
 }
 

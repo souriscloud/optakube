@@ -327,6 +327,7 @@ struct ClusterConnectionRow: View {
         case .clientCertificate: return "Certificate"
         case .exec: return "Exec"
         case .none: return "None"
+        case .unsupported: return "Unsupported"
         }
     }
 
@@ -336,7 +337,14 @@ struct ClusterConnectionRow: View {
         case .clientCertificate: return "lock.shield"
         case .exec: return "terminal"
         case .none: return "questionmark.circle"
+        case .unsupported: return "exclamationmark.triangle"
         }
+    }
+
+    /// The specific reason an auth mode is unsupported, for a tooltip on the row.
+    private var authDetail: String? {
+        if case .unsupported(let reason) = connection.authInfo { return reason }
+        return nil
     }
 }
 

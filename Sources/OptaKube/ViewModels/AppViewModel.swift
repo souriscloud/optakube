@@ -255,14 +255,28 @@ final class AppViewModel: Identifiable {
 
         do {
             let version = try await client.getServerVersion()
-            let namespaces = try await client.listNamespaces()
+
+            // Listing namespaces is a cluster-scoped read. A namespace-scoped identity —
+            // an extremely common setup, where `kubectl -n team-a get pods` works fine —
+            // cannot do it, and letting that 403 escape aborted the entire connection,
+            // making the app unusable for those users. Fall back to the namespace the
+            // kubeconfig context already names.
+            let namespaces: [String]
+            if let listed = try? await client.listNamespaces(), !listed.isEmpty {
+                namespaces = listed
+            } else {
+                namespaces = [connection.defaultNamespace ?? "default"]
+            }
+
             await MainActor.run {
                 connectionStatuses[connection.id] = .connected(serverVersion: version)
                 availableNamespaces[connection.id] = namespaces
                 if selectedNamespace == nil, let defaultNs = connection.defaultNamespace {
                     selectedNamespace = defaultNs
                 } else if selectedNamespace == nil {
-                    selectedNamespace = "default"
+                    // Prefer something we know exists over a hardcoded "default", which
+                    // may not exist or may not be readable.
+                    selectedNamespace = namespaces.contains("default") ? "default" : namespaces.first
                 }
             }
             // Discover CRDs
