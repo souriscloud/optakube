@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Package.swift needs swift-tools-version 5.10 (Xcode 15.3+). The runner
+      # image ships several Xcodes; pick the newest rather than pinning a version
+      # that a future image refresh might drop.
+      - name: Select newest Xcode
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $newest"
+          sudo xcode-select -s "$newest"
+          swift --version
+
+      - name: Build
+        run: swift build -c debug
+
+      - name: Test
+        run: swift test
+
+  consistency:
+    name: Version consistency
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guards the release-pipeline failure mode where a silent no-op version bump
+      # ships a DMG whose bundle version never advances, so Sparkle offers the
+      # release to nobody. Cheap to check here, expensive to discover post-release.
+      - name: AppInfo, Info.plist and appcast must agree
+        run: |
+          set -euo pipefail
+          plist=Sources/OptaKube/Info.plist
+
+          about_version=$(sed -n 's/^[[:space:]]*static let version = "\([^"]*\)".*/\1/p' \
+            Sources/OptaKube/Views/Settings/AboutView.swift | head -1)
+          plist_version=$(plutil -extract CFBundleShortVersionString raw "$plist")
+          plist_build=$(plutil -extract CFBundleVersion raw "$plist")
+
+          # Mirrors AppInfo.build: major*10000 + minor*100 + patch.
+          expected_build=$(printf '%s' "$about_version" | awk -F. '{print $1*10000 + $2*100 + $3}')
+
+          echo "AboutView=$about_version  plist=$plist_version/$plist_build  expected build=$expected_build"
+
+          [ "$about_version" = "$plist_version" ] \
+            || { echo "::error::AppInfo.version ($about_version) != CFBundleShortVersionString ($plist_version)"; exit 1; }
+          [ "$plist_build" = "$expected_build" ] \
+            || { echo "::error::CFBundleVersion ($plist_build) != derived build ($expected_build)"; exit 1; }
+
+      - name: Appcast is well-formed and matches the shipped version
+        run: |
+          set -euo pipefail
+          xmllint --noout appcast.xml \
+            || { echo "::error::appcast.xml is not well-formed XML"; exit 1; }
+
+          plist_version=$(plutil -extract CFBundleShortVersionString raw Sources/OptaKube/Info.plist)
+
+          # Highest sparkle:version wins; the file is newest-first today but don't rely on order.
+          newest_build=$(xmllint --xpath '//item/@sparkle:version' \
+            --nsargs sparkle http://www.andymatuschak.org/xml-namespaces/sparkle appcast.xml 2>/dev/null \
+            | tr ' ' '\n' | sed -n 's/.*="\([0-9]*\)".*/\1/p' | sort -n | tail -1) || newest_build=""
+
+          if [ -z "$newest_build" ]; then
+            # Fall back to plain grep if the xpath/nsargs form isn't supported by this libxml2.
+            newest_build=$(grep -o 'sparkle:version="[0-9]*"' appcast.xml \
+              | sed 's/[^0-9]//g' | sort -n | tail -1)
+          fi
+
+          newest_short=$(grep -o 'sparkle:shortVersionString="[^"]*"' appcast.xml \
+            | sed 's/.*="\([^"]*\)".*/\1/' | head -1)
+
+          echo "appcast newest: $newest_short (build $newest_build)  Info.plist: $plist_version"
+
+          # Every published enclosure must carry a signature and a length, or Sparkle
+          # rejects the update for users who have already installed the app.
+          enclosures=$(grep -c '<enclosure' appcast.xml)
+          signed=$(grep -c 'sparkle:edSignature=' appcast.xml)
+          lengths=$(grep -c 'length=' appcast.xml)
+          echo "enclosures=$enclosures signed=$signed lengths=$lengths"
+          [ "$enclosures" -eq "$lengths" ] \
+            || { echo "::error::$enclosures enclosures but only $lengths length attributes"; exit 1; }
