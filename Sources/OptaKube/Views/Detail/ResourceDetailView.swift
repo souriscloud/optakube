@@ -508,20 +508,16 @@ struct ResourceDetailView: View {
 
     private func applyChanges() {
         guard let client = viewModel.activeClients[resource.clusterId] else { return }
-        // Try to parse as YAML first, then convert to JSON for the API
+        // Parse with Kubernetes' scalar semantics, not YAML 1.1's — see ManifestYAML.
         let bodyData: Data
         do {
-            if let yamlObj = try Yams.load(yaml: editContent) {
-                bodyData = try JSONSerialization.data(withJSONObject: yamlObj)
-            } else {
-                applyError = "Empty YAML content"
-                return
-            }
+            bodyData = try ManifestYAML.jsonData(from: editContent)
         } catch {
-            // Fallback: try as raw JSON
+            // Fallback: the buffer may already be JSON, which is valid YAML anyway but
+            // worth accepting verbatim rather than reporting a parse failure.
             guard let rawData = editContent.data(using: .utf8),
                   (try? JSONSerialization.jsonObject(with: rawData)) != nil else {
-                applyError = "Invalid YAML: \(error.localizedDescription)"
+                applyError = error.localizedDescription
                 return
             }
             bodyData = rawData

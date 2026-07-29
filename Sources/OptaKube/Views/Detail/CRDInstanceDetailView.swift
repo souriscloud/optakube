@@ -113,10 +113,12 @@ struct CRDInstanceDetailView: View {
         guard let client = viewModel.activeClients[clusterId] else { return }
         let bodyData: Data
         do {
-            guard let obj = try Yams.load(yaml: editContent) else { errorMessage = "Empty YAML"; return }
-            bodyData = try JSONSerialization.data(withJSONObject: obj)
+            // Custom resources are the worst case for YAML 1.1 coercion: with
+            // x-kubernetes-preserve-unknown-fields the API server stores whatever it is
+            // handed, so a silently retyped scalar is never rejected. See ManifestYAML.
+            bodyData = try ManifestYAML.jsonData(from: editContent)
         } catch {
-            errorMessage = "Invalid YAML: \(error.localizedDescription)"; return
+            errorMessage = error.localizedDescription; return
         }
         isApplying = true
         Task {
