@@ -71,7 +71,7 @@ extension AppViewModel {
         // cleared all resourceVersions, so `refresh()` looping over clusters serially left
         // only the last one with live updates — reintroducing the single-watch bug the
         // per-cluster watchTasks dictionary exists to fix.
-        stopWatch(for: clusterId)
+        await stopWatch(for: clusterId)
         await MainActor.run { isLoading = true }
 
         await fetchList(for: clusterId)
@@ -84,7 +84,7 @@ extension AppViewModel {
         }
 
         // Start watching for live updates
-        startWatch(for: clusterId)
+        await startWatch(for: clusterId)
     }
 
     /// Re-lists without touching the watch registration.
@@ -248,6 +248,7 @@ extension AppViewModel {
 
     // MARK: - Cache teardown
 
+    @MainActor
     func clearResources(for clusterId: String) {
         pods.removeValue(forKey: clusterId)
         deployments.removeValue(forKey: clusterId)

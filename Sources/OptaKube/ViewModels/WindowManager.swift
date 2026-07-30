@@ -1,6 +1,10 @@
 import SwiftUI
 import AppKit
 
+// @MainActor because it owns NSWindow references and per-window view models, both of
+// which are main-thread-only, and because the view-model state it tears down on window
+// close is now main-actor isolated.
+@MainActor
 @Observable
 final class WindowManager {
     static let shared = WindowManager()

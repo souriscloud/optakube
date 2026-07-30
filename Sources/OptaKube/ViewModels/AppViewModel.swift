@@ -311,6 +311,7 @@ final class AppViewModel: Identifiable {
         }
     }
 
+    @MainActor
     func disconnect(from connectionId: String) {
         stopWatch(for: connectionId)
         activeClients.removeValue(forKey: connectionId)
@@ -320,6 +321,7 @@ final class AppViewModel: Identifiable {
         Task { @MainActor in NotificationsService.shared.reset(clusterId: connectionId) }
     }
 
+    @MainActor
     func toggleCluster(_ connection: ClusterConnection) async {
         if selectedClusterIds.contains(connection.id) {
             disconnect(from: connection.id)
@@ -329,6 +331,7 @@ final class AppViewModel: Identifiable {
         }
     }
 
+    @MainActor
     func disconnectAll() {
         stopWatch()
         for id in selectedClusterIds {

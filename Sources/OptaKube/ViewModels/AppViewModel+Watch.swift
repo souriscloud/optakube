@@ -13,7 +13,16 @@ import Foundation
 // either reconnects or reports itself as stale — it must never just stop quietly, which
 // is what used to freeze a window's data behind a healthy-looking UI.
 
+// Every function here that touches `watchTasks`, `resourceVersions` or `watchHealth` is
+// `@MainActor`. They were reachable from three different execution contexts — the
+// auto-refresh Task, `loadResources` (nonisolated, and awaited from a plain `Task` in the
+// welcome window), and `applyWatchBatch` on the main actor — so two threads could mutate
+// the same Swift Dictionary at once. That is undefined behaviour: the observed symptoms
+// would be an occasional "index out of range" or malloc crash, or a watch that silently
+// vanished. The network and decode paths are deliberately left off the main actor so a
+// 10,000-pod list still doesn't hitch the UI.
 extension AppViewModel {
+    @MainActor
     func startAutoRefresh(interval: TimeInterval = 30) {
         refreshTask?.cancel()
         refreshTask = Task {
@@ -37,11 +46,13 @@ extension AppViewModel {
         }
     }
 
+    @MainActor
     func stopAutoRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
     }
 
+    @MainActor
     func startWatch(for clusterId: String) {
         watchTasks[clusterId]?.cancel()
         watchTasks[clusterId] = nil
@@ -110,7 +121,7 @@ extension AppViewModel {
         }
     }
 
-    private func runWatch(client: K8sAPIClient, resourceType: ResourceType,
+    nonisolated private func runWatch(client: K8sAPIClient, resourceType: ResourceType,
                           namespace: String?, clusterId: String) async throws {
         guard let rv = await currentResourceVersion(for: clusterId) else {
             // No resourceVersion means the list hasn't succeeded yet (or was forbidden).
@@ -165,7 +176,7 @@ extension AppViewModel {
         resourceVersions[clusterId]
     }
 
-    private func typedWatch<T: K8sResource>(
+    nonisolated private func typedWatch<T: K8sResource>(
         _ type: T.Type,
         client: K8sAPIClient,
         rt: ResourceType,
@@ -297,6 +308,7 @@ extension AppViewModel {
         await refresh()
     }
 
+    @MainActor
     func stopWatch() {
         for (_, task) in watchTasks { task.cancel() }
         watchTasks.removeAll()
@@ -305,6 +317,7 @@ extension AppViewModel {
     }
 
     /// Cancel just the named cluster's watch (used on disconnect and on reload).
+    @MainActor
     func stopWatch(for clusterId: String) {
         watchTasks[clusterId]?.cancel()
         watchTasks[clusterId] = nil
