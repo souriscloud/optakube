@@ -310,10 +310,22 @@ struct ClusterConnectionRow: View {
                 Text("v\(version)").font(.caption).foregroundStyle(.secondary)
             }
         case .failure(let msg):
+            // A credential plugin's stderr ("aws: The config profile (prod) could not be
+            // found") is genuinely useful and was being clipped to about 150pt of a single
+            // caption line, with no way to read or copy the rest.
             HStack(spacing: 4) {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 Text(msg).font(.caption).foregroundStyle(.red).lineLimit(1).frame(maxWidth: 150)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(msg, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.clipboard").font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .help("Copy the full error")
             }
+            .help(msg)
         }
     }
 

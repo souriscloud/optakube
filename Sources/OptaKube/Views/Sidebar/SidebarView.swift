@@ -127,6 +127,18 @@ struct SidebarView: View {
                         Text(shortGroupName(group))
                     }
                 }
+            } else if let crdError = viewModel.crdDiscoveryError {
+                // Without this the entire Custom Resources area is simply absent, which
+                // reads as "this cluster has no CRDs" rather than "we weren't allowed to
+                // look" — the common case on restricted clusters.
+                Section {
+                    Label("Couldn't list CRDs", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help(crdError)
+                } header: {
+                    Text("Custom Resources")
+                }
             }
         }
         .listStyle(.sidebar)
@@ -219,8 +231,17 @@ struct ClusterRow: View {
                 .frame(width: 6, height: 6)
         }
         .padding(.vertical, 2)
+        // The status line is a single clipped caption in a narrow sidebar, and for an
+        // .error status that line *is* the whole diagnostic.
+        .help(statusText)
         .contextMenu {
             Button("Customize...") { showCustomize = true }
+            if case .error(let msg) = status {
+                Button("Copy Error") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(msg, forType: .string)
+                }
+            }
         }
         .popover(isPresented: $showCustomize) {
             ClusterCustomizePopover(connectionId: connection.id, originalName: connection.name)

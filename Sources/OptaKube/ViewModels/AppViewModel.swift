@@ -78,6 +78,9 @@ final class AppViewModel: Identifiable {
 
     // CRD support
     var discoveredCRDs: [CRDDefinition] = []
+    /// Why CRD discovery failed, if it did. Surfaced in the sidebar so the missing Custom
+    /// Resources section is explained rather than just absent.
+    var crdDiscoveryError: String?
     var customResources: [String: [GenericK8sResource]] = [:]  // keyed by clusterId
 
     // Convenience proxies to shared store
@@ -298,9 +301,19 @@ final class AppViewModel: Identifiable {
                     selectedNamespace = namespaces.contains("default") ? "default" : namespaces.first
                 }
             }
-            // Discover CRDs
-            if let crds = try? await client.discoverCRDs() {
-                await MainActor.run { discoveredCRDs = crds }
+            // Discover CRDs. Tolerated deliberately — listing CRDs is a cluster-scoped
+            // read that plenty of restricted clusters deny — but record why, because the
+            // consequence is the whole Custom Resources section disappearing from the
+            // sidebar with nothing to explain it.
+            do {
+                let crds = try await client.discoverCRDs()
+                await MainActor.run {
+                    discoveredCRDs = crds
+                    crdDiscoveryError = nil
+                }
+            } catch {
+                let message = error.localizedDescription
+                await MainActor.run { crdDiscoveryError = message }
             }
 
             await loadResources(for: connection.id)
