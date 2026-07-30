@@ -7,6 +7,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A correctness and completeness pass over the whole app, from a full audit. Most of these
+are things that made OptaKube quietly lie to you — about whether an action worked, whether
+data was current, or whether a namespace was empty.
+
+### Fixed — data integrity and destructive actions
+
+- **The Scale dialog opened at 1 replica regardless of the actual count.** Pressing its
+  default button on a 10-replica Deployment scaled it to 1. It now seeds from the live
+  count, and the confirm button stays disabled until the value actually changes.
+- **The YAML editor could crash the app and lose your edits.** An unquoted timestamp
+  (`expiry: 2026-01-01`) was resolved to a `Date`, which `JSONSerialization` rejects by
+  raising an Objective-C exception that no Swift `catch` can intercept — the process
+  aborted. Manifests are now parsed with Kubernetes' own scalar semantics.
+- **The YAML editor silently rewrote values before sending them.** `enabled: yes` became
+  `true`, and the confirmation diff compares the *text*, so the substitution was invisible
+  at review time. For a custom resource with `x-kubernetes-preserve-unknown-fields` the
+  API server stored it without complaint.
+- **Right-click Delete had no confirmation** — while the identical Delete in the inspector
+  did — and neither did "Scale to 0", Drain, Evict, or a Job's delete-and-cascade. All are
+  now confirmation-gated and explain what will happen.
+- **Every mutating action silently swallowed its errors.** On an RBAC denial the row
+  reappeared unchanged and nothing was said, which is indistinguishable from success.
+  Actions in both menus, and bulk delete/restart, now report the outcome either way.
+- **Helm rollback reported success unconditionally**, over a release whose history then
+  claimed a revision that had never been applied. **Helm uninstall was worse:** an object
+  it couldn't resolve was skipped silently and the release history deleted anyway,
+  orphaning live objects and leaving the release untrackable by `helm`. Both now verify
+  first and keep the operation retryable.
+- **Evict and Drain bypassed the connection's TLS configuration entirely**, going out
+  anonymous on every client-certificate cluster (kind, k3s, Rancher, most on-prem).
+- **The embedded terminal rewrote your real kubeconfig.** Its setup ran `kubectl config
+  use-context`, so opening the terminal to glance at a prod cluster left every other shell
+  on the machine pointed at prod. It now uses a private copy.
+
+### Fixed — connecting
+
+- **minikube, k3s and kubeadm clusters could not connect at all.**
+  `certificate-authority`, `client-certificate` and `client-key` *file paths* were parsed
+  and then never read — only the embedded variants were — so there was no CA pinned and
+  auth fell through to none. The Welcome row even advertised "None" for a config plainly
+  carrying client certificates.
+- **Namespace-scoped credentials could not connect at all.** Connecting required a
+  cluster-wide namespace list, so a 403 aborted everything for users whose RBAC works
+  perfectly well with `kubectl -n team-a`.
+- **`KUBECONFIG` was ignored** for cluster discovery. Colon-separated paths now work, and a
+  context referencing a cluster or user defined in another file resolves instead of being
+  dropped.
+- **One odd entry could hide every cluster in a file.** A single `cluster: {}` placeholder
+  failed the whole decode, and all its contexts vanished with no diagnostic.
+- Exec credential plugins: renew 60s before expiry rather than at the last millisecond;
+  cache with a fallback lifetime when the plugin returns no expiry (previously the plugin
+  re-ran through a login shell on *every* API call); read stdout and stderr concurrently
+  so a chatty plugin can't deadlock the cluster's entire traffic; and a 60s watchdog.
+- A 401 on a token the app still believed valid now refreshes and retries once.
+- Unsupported kubeconfig auth (`auth-provider`, basic auth) is now named in the UI instead
+  of failing later as an unexplained 401.
+- API errors are decoded from the Kubernetes `Status` body. 401 and 403 — expired
+  credentials and missing RBAC — were previously indistinguishable truncated JSON blobs.
+
+### Fixed — live updates going stale
+
+- **A window could freeze forever behind a green "connected" dot.** Every way a watch could
+  end left it registered, and the polling fallback was gated on that registration being
+  absent — so a dead watch disabled the only other update mechanism. Triggered by anything
+  routine: closing the laptop, a VPN flap, an expired credential.
+- An expired `resourceVersion` now re-lists instead of giving up permanently. The form the
+  API server actually uses to report it — an in-stream `ERROR`, not an HTTP 410 — was being
+  discarded, after which the stream ended *cleanly* and the app reconnected instantly with
+  the same dead version, forever, without delivering a single event.
+- Watches now carry a `timeoutSeconds`, and the session has a read deadline, so a socket
+  left half-open by sleep or a VPN reconnect can no longer sit there producing neither
+  bytes nor errors. Waking the Mac restarts watches.
+- The status bar shows a badge when live updates are interrupted or stale, and the
+  "last refresh" time now reflects live events rather than only the last list.
+- Live updates cover all 32 resource types. The other 21 had neither watches nor polling
+  and never changed until ⌘R.
+- Loading a resource list no longer cancels every *other* cluster's watch.
+- Clicking a resource type your credentials can't list no longer pegs a CPU core.
+- Watch and log streams no longer leak a live HTTP connection per sidebar click.
+
+### Fixed — things that looked empty but weren't
+
+- **A 403 rendered as "No resources found in namespace X"**, so users concluded the
+  namespace was empty. Failures now say so, with the reason and a Retry.
+- The Events tab was permanently empty for six resource types (`Ingresse`,
+  `NetworkPolicie`, `Endpoint`, `StorageClasse`, `PriorityClasse`, `IngressClasse` — the
+  kind was derived by dropping a trailing "s"), and could otherwise spin on
+  "Loading events…" forever.
+- The log view showed ~12s of "Connecting…" then a blank pane with no reason — including
+  for the common cases of an invalid container name or the "Previous" toggle on a pod that
+  has never restarted.
+- 21 resource types opened their inspector to *"Detail view not yet available"*. All 32 now
+  have a real detail view.
+- The status-bar count read "0 ingresses" with 47 on screen, and ⌘K never matched those
+  types by name.
+- The cluster overview showed the same events under every cluster card, and a failed events
+  fetch rendered as "No recent events".
+- The YAML tab could spin forever on a non-JSON response (an intercepting proxy or SSO
+  portal).
+- "Show All Namespaces" is no longer offered for cluster-scoped types, where it did nothing.
+
+### Fixed — leaks, hangs, and dead ends
+
+- Quitting the app orphaned every `kubectl port-forward`, leaving local ports bound so the
+  next launch failed with "address already in use".
+- A port forward wedged after roughly 2,200 connections (kubectl's stdout was never
+  drained) while still showing as healthy, and a failing forward closed its sheet
+  cheerfully — kubectl's own error was captured all along but never displayed.
+- Service port-forwards never worked: the target wasn't kind-qualified, so kubectl resolved
+  the name as a pod.
+- **File ▸ New Window was a dead end** — it took ⌘N from the create-resource button and
+  opened a window stuck on "Connecting…" forever with no way out but closing it.
+- ⌘1–9 changed the resource type in an arbitrary window rather than the focused one.
+- **Two Settings controls did nothing at all**: the auto-refresh interval slider and the
+  max-log-lines stepper were written and never read.
+- Pod-restart notifications only fired if you sat on the Pods list pressing ⌘R.
+- ⌘R did nothing in the Helm and Events browsers, which were frozen once loaded.
+- Custom resources: clicking did nothing and double-clicking did nothing — the only route
+  in was right-clicking the Name cell. They now have selection, double-click, and a full
+  context menu with a confirmation-gated Delete.
+- Right-clicking a Helm release opened a literally empty menu.
+- Exporting logs to a read-only location wrote nothing and said nothing.
+- A single transient error stayed pinned to the status bar for the window's lifetime, with
+  no way to read or dismiss it.
+- A corrupt Helm release Secret could crash the app on opening the Helm view via an
+  unbounded allocation.
+- Fixed duplicate SwiftUI list identities (a sidecar exposing the app's port; ReplicaSets
+  without a revision annotation), which are undefined behaviour.
+- A dead watch's coalesced batch could land *after* a namespace switch, showing prod pods
+  in the dev list with working Delete and Exec actions.
+
+### Internal
+
+- **CI.** The 52 tests only ran inside `release.sh`, at the point where a failure is most
+  expensive. `swift build` and `swift test` now run on macOS for every push, alongside
+  checks that `AppInfo`, `Info.plist` and `appcast.xml` agree and that the published feed
+  is well-formed with a signed newest entry. Tests → 88.
+- **Release pipeline.** The appcast was pushed *before* the DMG existed and after the
+  rollback trap was disarmed, so a failure left the repo permanently advertising a 404
+  download to every user. Assets are now published and verified first. Preflight also
+  requires the Sparkle signing key to match the one pinned in the app (signing with the
+  wrong key would invalidate the entire feed history and kill auto-update for everyone,
+  irrecoverably), refuses a version bump that silently no-ops, refuses to regenerate the
+  feed from an incomplete `releases/` directory, and asserts Gatekeeper accepts the DMG. A
+  missing `Sparkle.framework` is now a hard failure rather than shipping an app that
+  crashes at launch for 100% of users. `--dry-run` no longer discards uncommitted work.
+- Update dialogs now show release notes, rendered from this changelog.
+- Watch and teardown state is main-actor isolated; it was previously mutated from three
+  execution contexts at once.
+- Adds `SECURITY.md` (including a plain account of how credentials are handled),
+  `CONTRIBUTING.md`, and issue templates.
+- `Info.plist` gains `NSLocalNetworkUsageDescription`, which macOS 15 wants before reaching
+  a cluster on localhost or a private range — kind, minikube, and most on-prem API servers.
+
 ## [0.8.0] - 2026-05-31
 
 ### Added
