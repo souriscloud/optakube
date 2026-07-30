@@ -305,8 +305,14 @@ final class AppViewModel: Identifiable {
 
             await loadResources(for: connection.id)
         } catch {
+            // A failed client-certificate conversion is by far the most likely explanation
+            // for an otherwise inscrutable TLS error or 401 here, so lead with it.
+            var message = error.localizedDescription
+            if let certProblem = client.clientIdentityError {
+                message = "Couldn't use this cluster's client certificate — \(certProblem).\n\n\(message)"
+            }
             await MainActor.run {
-                connectionStatuses[connection.id] = .error(error.localizedDescription)
+                connectionStatuses[connection.id] = .error(message)
             }
         }
     }

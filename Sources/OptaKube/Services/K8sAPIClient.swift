@@ -111,6 +111,12 @@ final class K8sAPIClient: Sendable {
     // Watch session with no timeout (watches are long-lived)
     private let watchSession: URLSession
 
+    /// Why the kubeconfig's client certificate couldn't be loaded, if it couldn't. Without
+    /// this the delegate silently falls back to default handling, the server sees no
+    /// identity, and the user gets a generic TLS error or 401 that never mentions the
+    /// certificate.
+    let clientIdentityError: String?
+
     private static let jsonDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
         let formatter = ISO8601DateFormatter()
@@ -146,9 +152,12 @@ final class K8sAPIClient: Sendable {
         // Pre-load client identity for TLS (client-certificate auth only).
         var identity: SecIdentity?
         var certificate: SecCertificate?
+        var identityError: String?
         if case .clientCertificate(let certData, let keyData) = connection.authInfo {
-            (identity, certificate) = Self.loadClientIdentity(certData: certData, keyData: keyData)
+            (identity, certificate, identityError) =
+                Self.loadClientIdentity(certData: certData, keyData: keyData)
         }
+        self.clientIdentityError = identityError
 
         let delegate = TLSTrustDelegate(connection: connection, clientIdentity: identity, clientCertificate: certificate)
         self.trustDelegate = delegate
@@ -172,15 +181,28 @@ final class K8sAPIClient: Sendable {
 
     // MARK: - Client Certificate Loading
 
-    private static func loadClientIdentity(certData: Data, keyData: Data) -> (SecIdentity?, SecCertificate?) {
+    /// Converts a PEM cert+key pair into a `SecIdentity` for TLS client authentication.
+    ///
+    /// Returns the reason on failure as well. Every failure path here used to return
+    /// `(nil, nil)` silently, after which the TLS delegate fell back to default handling —
+    /// the server saw no identity and the user got a generic TLS error or 401 with no
+    /// mention of their certificate being the problem.
+    private static func loadClientIdentity(
+        certData: Data, keyData: Data
+    ) -> (identity: SecIdentity?, certificate: SecCertificate?, error: String?) {
         // kubeconfig base64-decoded data is PEM-encoded.
         // Use openssl to create a PKCS12 bundle, then import it via SecPKCS12Import.
         // This handles RSA, EC, and any other key type that openssl supports.
         guard let certPEM = String(data: certData, encoding: .utf8),
-              let keyPEM = String(data: keyData, encoding: .utf8) else { return (nil, nil) }
+              let keyPEM = String(data: keyData, encoding: .utf8) else {
+            return (nil, nil, "the client certificate or key is not valid PEM text")
+        }
 
+        // 0700 so the unencrypted private key written below isn't readable by other users
+        // even for the moment it exists.
         let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let certFile = tmpDir.appendingPathComponent("cert.pem")
@@ -191,7 +213,11 @@ final class K8sAPIClient: Sendable {
         do {
             try certPEM.write(to: certFile, atomically: true, encoding: .utf8)
             try keyPEM.write(to: keyFile, atomically: true, encoding: .utf8)
-        } catch { return (nil, nil) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                  ofItemAtPath: keyFile.path)
+        } catch {
+            return (nil, nil, "couldn't stage the certificate for conversion: \(error.localizedDescription)")
+        }
 
         // Use openssl to create PKCS12
         let process = Process()
@@ -201,35 +227,55 @@ final class K8sAPIClient: Sendable {
             "-out", p12File.path,
             "-inkey", keyFile.path,
             "-in", certFile.path,
-            "-passout", "pass:\(password)"
+            // env: rather than pass: — an argv passphrase is visible to any local process
+            // via `ps`. Short-lived and random, but free to avoid.
+            "-passout", "env:OPTAKUBE_P12_PASS",
         ]
+        var childEnv = ProcessInfo.processInfo.environment
+        childEnv["OPTAKUBE_P12_PASS"] = password
+        process.environment = childEnv
         process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
 
         do {
             try process.run()
-            process.waitUntilExit()
-        } catch { return (nil, nil) }
+        } catch {
+            return (nil, nil, "couldn't run /usr/bin/openssl: \(error.localizedDescription)")
+        }
+        // Read before waiting: openssl's output is small, but the ordering is what makes
+        // this safe against a full pipe buffer.
+        let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+        process.waitUntilExit()
 
-        guard process.terminationStatus == 0,
-              let p12Data = try? Data(contentsOf: p12File) else { return (nil, nil) }
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (nil, nil, "openssl couldn't convert the client certificate"
+                    + (detail.isEmpty ? "" : ": \(detail)"))
+        }
+        guard let p12Data = try? Data(contentsOf: p12File) else {
+            return (nil, nil, "openssl produced no PKCS#12 bundle")
+        }
 
         // Import PKCS12 into Security framework
         var items: CFArray?
         let options: [String: Any] = [kSecImportExportPassphrase as String: password]
         let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
 
-        guard status == errSecSuccess,
-              let itemArray = items as? [[String: Any]],
+        guard status == errSecSuccess else {
+            return (nil, nil, "the system rejected the converted certificate (OSStatus \(status))")
+        }
+        guard let itemArray = items as? [[String: Any]],
               let firstItem = itemArray.first,
-              let identityItem = firstItem[kSecImportItemIdentity as String] else { return (nil, nil) }
-
-        let identity = identityItem as! SecIdentity
+              let identity = firstItem[kSecImportItemIdentity as String] as? SecIdentity else {
+            return (nil, nil, "the converted certificate contained no usable identity")
+        }
 
         // Also extract the certificate for the TLS delegate
         var certRef: SecCertificate?
         SecIdentityCopyCertificate(identity, &certRef)
-        return (identity, certRef)
+        return (identity, certRef, nil)
     }
 
     // MARK: - CRD Discovery
