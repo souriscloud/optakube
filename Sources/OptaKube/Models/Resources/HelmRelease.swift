@@ -134,7 +134,15 @@ struct HelmRelease: Identifiable, Sendable {
         var isize = 0
         for (i, b) in isizeBytes.enumerated() { isize |= Int(b) << (8 * i) }
         // Guard against a bogus/zero ISIZE; fall back to a generous buffer.
-        let capacity = isize > 0 ? isize : max(body.count * 8, 65_536)
+        //
+        // ISIZE comes from cluster data — a Helm release Secret — so it must be bounded.
+        // A truncated or corrupt Secret can declare up to 0xFFFFFFFF, and
+        // UnsafeMutablePointer.allocate traps rather than returning nil on failure, so a
+        // single damaged release would crash the app just by opening the Helm view.
+        // 64 MiB is far above any real rendered manifest.
+        let maxCapacity = 64 << 20
+        let declared = isize > 0 ? isize : max(body.count * 8, 65_536)
+        let capacity = min(max(declared, 65_536), maxCapacity)
 
         return body.withUnsafeBytes { (src: UnsafeRawBufferPointer) -> Data? in
             guard let srcPtr = src.bindMemory(to: UInt8.self).baseAddress else { return nil }

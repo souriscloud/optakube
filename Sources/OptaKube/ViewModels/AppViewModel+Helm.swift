@@ -25,7 +25,15 @@ extension AppViewModel {
         let crds = discoveredCRDs
         var failures: [String] = []
 
-        // Delete manifest objects (reverse order, best-effort — GC handles dependents).
+        // Resolve every document to an API path BEFORE deleting anything. A document
+        // whose path can't be resolved used to `continue` silently without being recorded,
+        // and the release history Secrets were then deleted regardless — orphaning live
+        // objects and leaving the release untrackable by the helm CLI, under a green
+        // "Uninstalled X." message. The usual cause is a custom resource missing from
+        // `discoveredCRDs`, which is itself populated with `try?`, so any user without
+        // cluster-wide CRD list permission hit exactly this.
+        var plan: [(path: String, label: String)] = []
+        var unresolved: [String] = []
         for doc in Self.manifestDocs(manifest).reversed() {
             guard let parsed = try? Yams.load(yaml: doc) as? [String: Any],
                   let apiVersion = parsed["apiVersion"] as? String,
@@ -34,27 +42,59 @@ extension AppViewModel {
                   let name = meta["name"] as? String else { continue }
             let docNS = meta["namespace"] as? String
             guard let path = ManifestRouting.resourcePath(apiVersion: apiVersion, kind: kind, name: name,
-                                                          namespace: docNS, crds: crds, fallbackNamespace: namespace) else { continue }
-            do { try await client.deleteByPath(path) }
-            catch K8sError.requestFailed(404, _) { /* already gone */ }
-            catch { failures.append("\(kind)/\(name)") }
+                                                          namespace: docNS, crds: crds, fallbackNamespace: namespace) else {
+                unresolved.append("\(kind)/\(name)")
+                continue
+            }
+            plan.append((path, "\(kind)/\(name)"))
         }
 
-        // Delete the release history Secrets.
+        if !unresolved.isEmpty {
+            return .init(ok: false, message: "Not uninstalled. \(unresolved.count) object(s) in this "
+                         + "release couldn't be resolved to an API path, so deleting the release "
+                         + "history would orphan them: \(unresolved.joined(separator: ", ")). "
+                         + "This usually means a CustomResourceDefinition wasn't discoverable — "
+                         + "check that you can list CRDs on this cluster.")
+        }
+
+        for item in plan {
+            do { try await client.deleteByPath(item.path) }
+            catch K8sError.requestFailed(404, _) { /* already gone */ }
+            catch { failures.append("\(item.label): \(error.localizedDescription)") }
+        }
+
+        // Only remove the release history once its objects are actually gone. Deleting it
+        // while objects remain is the one irreversible step here — helm can no longer see
+        // the release, so there is nothing left to retry against.
+        if !failures.isEmpty {
+            await loadHelmReleases()
+            return .init(ok: false, message: "Release history kept: \(failures.count) object(s) "
+                         + "could not be deleted, so \(release) is still tracked and you can retry.\n\n"
+                         + failures.prefix(10).joined(separator: "\n"))
+        }
+
         do {
             let secrets = try await client.listHelmReleaseSecrets(release: release, namespace: namespace)
             for s in secrets {
-                try? await client.deleteByPath("/api/v1/namespaces/\(namespace)/secrets/\(s.secretName)")
+                do {
+                    try await client.deleteByPath("/api/v1/namespaces/\(namespace)/secrets/\(s.secretName)")
+                } catch K8sError.requestFailed(404, _) {
+                    // already gone
+                } catch {
+                    failures.append("revision \(s.revision) secret: \(error.localizedDescription)")
+                }
             }
         } catch {
-            failures.append("release secrets")
+            failures.append("release secrets: \(error.localizedDescription)")
         }
 
         await loadHelmReleases()
         if failures.isEmpty {
             return .init(ok: true, message: "Uninstalled \(release).")
         }
-        return .init(ok: false, message: "Uninstalled \(release) with issues deleting: \(failures.joined(separator: ", ")).")
+        return .init(ok: false, message: "Deleted \(release)'s objects, but its release history "
+                     + "was not fully removed, so helm may still list it:\n\n"
+                     + failures.joined(separator: "\n"))
     }
 
     /// Roll back to `toRevision`: re-apply its manifest, write a new deployed revision,
@@ -84,12 +124,18 @@ extension AppViewModel {
             guard let newData = HelmRelease.encodeForSecretData(json: targetJSON) else {
                 return .init(ok: false, message: "Couldn't encode the new revision.")
             }
-            try await client.createHelmReleaseSecret(release: release, namespace: namespace,
-                                                     revision: newRev, status: "deployed", dataReleaseB64: newData)
 
-            // Re-apply the target revision's manifest.
+            // Resolve and apply the manifest BEFORE recording the new revision, and report
+            // per-object failures. This used to record the revision first and then apply
+            // each document with `try?`, returning an unconditional "Rolled back X to
+            // revision N" — so an RBAC denial or a rejecting webhook produced a green
+            // success banner over a release whose history now claimed a revision that had
+            // never been applied. A false success on a destructive operation is worse than
+            // silence.
             let manifest = targetJSON["manifest"] as? String ?? ""
             let crds = discoveredCRDs
+            var plan: [(path: String, doc: String, label: String)] = []
+            var unresolved: [String] = []
             for doc in Self.manifestDocs(manifest) {
                 guard let parsed = try? Yams.load(yaml: doc) as? [String: Any],
                       let apiVersion = parsed["apiVersion"] as? String,
@@ -98,9 +144,35 @@ extension AppViewModel {
                       let name = meta["name"] as? String else { continue }
                 let docNS = meta["namespace"] as? String
                 guard let path = ManifestRouting.resourcePath(apiVersion: apiVersion, kind: kind, name: name,
-                                                             namespace: docNS, crds: crds, fallbackNamespace: namespace) else { continue }
-                try? await client.serverSideApply(path: path, yaml: doc)
+                                                             namespace: docNS, crds: crds, fallbackNamespace: namespace) else {
+                    unresolved.append("\(kind)/\(name)")
+                    continue
+                }
+                plan.append((path, doc, "\(kind)/\(name)"))
             }
+
+            if !unresolved.isEmpty {
+                return .init(ok: false, message: "Rollback not attempted: \(unresolved.count) "
+                             + "object(s) in revision \(toRevision) couldn't be resolved to an API "
+                             + "path: \(unresolved.joined(separator: ", ")). Nothing was changed.")
+            }
+
+            var applyFailures: [String] = []
+            for item in plan {
+                do { try await client.serverSideApply(path: item.path, yaml: item.doc) }
+                catch { applyFailures.append("\(item.label): \(error.localizedDescription)") }
+            }
+
+            if !applyFailures.isEmpty {
+                await loadHelmReleases()
+                return .init(ok: false, message: "Rollback incomplete — \(plan.count - applyFailures.count) "
+                             + "of \(plan.count) object(s) applied, and the release history was not "
+                             + "updated, so it still reflects revision \(maxRev).\n\n"
+                             + applyFailures.prefix(10).joined(separator: "\n"))
+            }
+
+            try await client.createHelmReleaseSecret(release: release, namespace: namespace,
+                                                     revision: newRev, status: "deployed", dataReleaseB64: newData)
 
             // Mark the prior current revision superseded.
             if let current = secrets.first(where: { $0.revision == maxRev }),

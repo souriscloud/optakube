@@ -25,6 +25,18 @@ final class TerminalBridge {
 
     func detach(_ v: LocalProcessTerminalView) {
         if view === v { view = nil }
+        if let dir = scratchDirs.removeValue(forKey: ObjectIdentifier(v)) {
+            try? FileManager.default.removeItem(at: dir)
+        }
+    }
+
+    /// Per-terminal scratch directory (shell rc file, private kubeconfig copy), removed
+    /// when the view is dismantled. MainWindow recreates the terminal view on every
+    /// show/hide toggle, so without this these accumulated for the process lifetime.
+    private var scratchDirs: [ObjectIdentifier: URL] = [:]
+
+    func registerScratchDir(_ dir: URL, for v: LocalProcessTerminalView) {
+        scratchDirs[ObjectIdentifier(v)] = dir
     }
 
     /// Type a command into the terminal, then press Enter. We send the command and the
@@ -102,9 +114,34 @@ struct SwiftTermView: NSViewRepresentable {
         termView.nativeBackgroundColor = NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.14, alpha: 1.0)
         termView.nativeForegroundColor = NSColor(calibratedRed: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
 
+        // Per-session scratch directory for the shell rc file and the kubeconfig copy.
+        // Registered so it's removed when the view goes away — these used to be created
+        // under /tmp on every terminal toggle and never cleaned up.
+        let sessionDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("optakube-term-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        TerminalBridge.shared.registerScratchDir(sessionDir, for: termView)
+
         // Build environment
         var env = ProcessInfo.processInfo.environment
+
+        // Point KUBECONFIG at a private copy. The setup commands below run
+        // `kubectl config use-context` and `set-context --namespace`, which WRITE to
+        // whichever kubeconfig is in effect — so with the real path they silently changed
+        // the user's current-context and default namespace for every other shell on the
+        // machine. Opening the terminal to glance at a prod cluster left their next
+        // kubectl pointed at prod.
+        var effectiveKubeconfig = kubeconfigPath
         if let kc = kubeconfigPath {
+            let copy = sessionDir.appendingPathComponent("config")
+            if (try? FileManager.default.copyItem(at: URL(fileURLWithPath: kc), to: copy)) != nil {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                       ofItemAtPath: copy.path)
+                effectiveKubeconfig = copy.path
+            }
+        }
+        if let kc = effectiveKubeconfig {
             env["KUBECONFIG"] = kc
         }
         env["TERM"] = "xterm-256color"
@@ -123,18 +160,20 @@ struct SwiftTermView: NSViewRepresentable {
             return termView
         }
 
-        // Interactive: set up kubectl context inside the shell.
+        // Interactive: set up kubectl context inside the shell. Both writes land in the
+        // private kubeconfig copy created above, never the user's own file.
+        let quotedContext = Self.shellQuoted(contextName)
+        let quotedNamespace = Self.shellQuoted(namespace)
         let setupCmds = """
-        kubectl config use-context '\(contextName)' 2>/dev/null
-        kubectl config set-context --current --namespace='\(namespace)' 2>/dev/null
-        printf '\\033[1;36m● OptaKube — \(contextName) (ns: \(namespace))\\033[0m\\n\\n'
+        kubectl config use-context \(quotedContext) 2>/dev/null
+        kubectl config set-context --current --namespace=\(quotedNamespace) 2>/dev/null
+        printf '\\033[1;36m● OptaKube — %s (ns: %s)\\033[0m\\n\\n' \(quotedContext) \(quotedNamespace)
         """
 
         var shellArgs = [String]()
 
         if shell.hasSuffix("zsh") {
-            let tmpDir = "/tmp/optakube-zsh-\(ProcessInfo.processInfo.processIdentifier)-\(Int.random(in: 1000...9999))"
-            try? FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
+            let tmpDir = sessionDir.path
             let home = env["HOME"] ?? NSHomeDirectory()
             let zshrc = """
             [[ -f \(home)/.zshrc ]] && source \(home)/.zshrc
@@ -146,7 +185,7 @@ struct SwiftTermView: NSViewRepresentable {
             envWithZdotdir.append("ZDOTDIR=\(tmpDir)")
             termView.startProcess(executable: shell, args: shellArgs, environment: envWithZdotdir, execName: "-zsh")
         } else if shell.hasSuffix("bash") {
-            let tmpRC = "/tmp/optakube-bashrc-\(ProcessInfo.processInfo.processIdentifier)"
+            let tmpRC = sessionDir.appendingPathComponent("bashrc").path
             let bashrc = """
             [[ -f ~/.bashrc ]] && source ~/.bashrc
             \(setupCmds)
@@ -165,6 +204,13 @@ struct SwiftTermView: NSViewRepresentable {
 
         TerminalBridge.shared.attach(termView)
         return termView
+    }
+
+    /// Single-quotes a value for safe interpolation into a shell command. Context and
+    /// namespace names come from the kubeconfig, so they're not arbitrary — but they were
+    /// interpolated into single quotes with no escaping, which one apostrophe would break.
+    static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Picks the shell to run inside the terminal. Priority:
@@ -196,6 +242,9 @@ struct SwiftTermView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: LocalProcessTerminalView, coordinator: ()) {
+        // Terminate the PTY child explicitly rather than relying on the master descriptor
+        // closing and SIGHUP propagating — a `kubectl exec -it` grandchild can survive that.
+        nsView.process.terminate()
         Task { @MainActor in TerminalBridge.shared.detach(nsView) }
     }
 
