@@ -10,6 +10,7 @@ struct ResourceListView: View {
     @State private var multiSelection = Set<ResourceIdentifier>()
     @State private var showBulkDeleteConfirm = false
     @State private var bulkOutcome: BulkOutcome?
+    @State private var pendingAction: ResourceActionRequest?
 
     struct BulkOutcome: Identifiable {
         let id = UUID()
@@ -195,6 +196,35 @@ struct ResourceListView: View {
             Button("Delete \(multiSelection.count)", role: .destructive) { bulkDelete() }
             Button("Cancel", role: .cancel) {}
         }
+        // Right-click actions are posted here rather than performed in the menu, which
+        // can't host its own dialogs. Previously they ran immediately with a bare `try?`:
+        // Delete had no confirmation at all (while the same Delete in the inspector did),
+        // and a mis-click on "Scale to 0" took a Deployment out of production silently.
+        .task {
+            let requests = NotificationCenter.default.notifications(named: .performResourceAction)
+            for await note in requests {
+                guard let request = note.object as? ResourceActionRequest else { continue }
+                if request.kind.needsConfirmation {
+                    pendingAction = request
+                } else {
+                    await perform(request)
+                }
+            }
+        }
+        .confirmationDialog(confirmationTitle,
+                            isPresented: Binding(get: { pendingAction != nil },
+                                                 set: { if !$0 { pendingAction = nil } }),
+                            titleVisibility: .visible,
+                            presenting: pendingAction) { request in
+            Button(confirmationVerb(for: request.kind), role: .destructive) {
+                let captured = request
+                pendingAction = nil
+                Task { await perform(captured) }
+            }
+            Button("Cancel", role: .cancel) { pendingAction = nil }
+        } message: { request in
+            Text(confirmationMessage(for: request.kind))
+        }
         .alert(bulkOutcome?.isError == true ? "Some resources were not changed" : "Done",
                isPresented: Binding(get: { bulkOutcome != nil },
                                     set: { if !$0 { bulkOutcome = nil } }),
@@ -246,6 +276,91 @@ struct ResourceListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    // MARK: - Single-resource actions from the context menu
+
+    private var confirmationTitle: String {
+        guard let request = pendingAction else { return "" }
+        switch request.kind {
+        case .delete: return "Delete \(request.resource.name)?"
+        case .scaleToZero: return "Scale \(request.resource.name) to zero?"
+        case .evict: return "Evict \(request.resource.name)?"
+        default: return request.resource.name
+        }
+    }
+
+    private func confirmationVerb(for kind: ResourceActionRequest.Kind) -> String {
+        switch kind {
+        case .delete: return "Delete"
+        case .scaleToZero: return "Scale to 0"
+        case .evict: return "Evict"
+        default: return "Continue"
+        }
+    }
+
+    private func confirmationMessage(for kind: ResourceActionRequest.Kind) -> String {
+        switch kind {
+        case .delete:
+            return "This action cannot be undone."
+        case .scaleToZero:
+            return "Every replica is removed, so this stops serving traffic until it's scaled back up."
+        case .evict:
+            return "The pod is deleted, subject to any PodDisruptionBudget. Its controller decides whether to replace it."
+        default:
+            return ""
+        }
+    }
+
+    private func perform(_ request: ResourceActionRequest) async {
+        let rid = request.resource
+        guard let client = viewModel.activeClients[rid.clusterId] else {
+            bulkOutcome = BulkOutcome(message: "Not connected to \(rid.name)'s cluster.", isError: true)
+            return
+        }
+
+        let succeeded: String
+        do {
+            switch request.kind {
+            case .restart:
+                try await client.restart(resourceType: rid.resourceType, name: rid.name,
+                                         namespace: rid.namespace)
+                succeeded = "Restarted \(rid.name)."
+            case .scaleToZero:
+                try await client.scale(resourceType: rid.resourceType, name: rid.name,
+                                       namespace: rid.namespace, replicas: 0)
+                succeeded = "Scaled \(rid.name) to 0."
+            case .triggerJob:
+                try await client.triggerCronJob(name: rid.name, namespace: rid.namespace)
+                succeeded = "Triggered a job from \(rid.name)."
+            case .setCronJobSuspended(let suspend):
+                try await client.suspendCronJob(name: rid.name, namespace: rid.namespace,
+                                                suspend: suspend)
+                succeeded = "\(suspend ? "Suspended" : "Resumed") \(rid.name)."
+            case .setCordoned(let cordon):
+                let body = try JSONSerialization.data(
+                    withJSONObject: ["spec": ["unschedulable": cordon]])
+                try await client.patch(resourceType: .nodes, name: rid.name,
+                                       namespace: nil, body: body)
+                succeeded = "\(cordon ? "Cordoned" : "Uncordoned") \(rid.name)."
+            case .evict:
+                guard let ns = rid.namespace else {
+                    bulkOutcome = BulkOutcome(message: "\(rid.name) has no namespace, so it cannot be evicted.",
+                                              isError: true)
+                    return
+                }
+                try await client.evict(podName: rid.name, namespace: ns)
+                succeeded = "Evicted \(rid.name)."
+            case .delete:
+                try await client.delete(resourceType: rid.resourceType, name: rid.name,
+                                        namespace: rid.namespace)
+                succeeded = "Deleted \(rid.name)."
+            }
+            bulkOutcome = BulkOutcome(message: succeeded, isError: false)
+        } catch {
+            bulkOutcome = BulkOutcome(message: error.localizedDescription, isError: true)
+        }
+        await viewModel.refresh()
     }
 
     private func bulkDelete() {

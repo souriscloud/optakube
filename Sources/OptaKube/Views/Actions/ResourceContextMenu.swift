@@ -1,10 +1,59 @@
 import SwiftUI
 import AppKit
 
+/// A mutating action requested from a context menu.
+///
+/// The menu can't present its own confirmation or alert: `.contextMenu`'s content isn't a
+/// persistent view, so `.confirmationDialog` and `.alert` attached inside it never appear.
+/// Actions are therefore posted to the enclosing list view, which owns the dialogs and
+/// reports the outcome — the same indirection the existing `.openFullLogs` /
+/// `.openPodExec` menu items already use.
+struct ResourceActionRequest {
+    enum Kind {
+        case restart
+        case scaleToZero
+        case triggerJob
+        case setCronJobSuspended(Bool)
+        case setCordoned(Bool)
+        case evict
+        case delete
+
+        /// Destructive or traffic-affecting actions get a confirmation first.
+        var needsConfirmation: Bool {
+            switch self {
+            case .delete, .scaleToZero, .evict: return true
+            case .restart, .triggerJob, .setCronJobSuspended, .setCordoned: return false
+            }
+        }
+    }
+
+    let resource: ResourceIdentifier
+    let kind: Kind
+}
+
+extension Notification.Name {
+    static let performResourceAction = Notification.Name("performResourceAction")
+}
+
 /// Context menu for right-clicking a resource row in any table
 struct ResourceContextMenu: View {
     @Environment(AppViewModel.self) private var viewModel
     let resource: ResourceIdentifier
+
+    private func request(_ kind: ResourceActionRequest.Kind) {
+        NotificationCenter.default.post(
+            name: .performResourceAction,
+            object: ResourceActionRequest(resource: resource, kind: kind))
+    }
+
+    private var isCronJobSuspended: Bool {
+        viewModel.cronJobs[resource.clusterId]?.first { $0.name == resource.name }?.isSuspended ?? false
+    }
+
+    private var isNodeCordoned: Bool {
+        viewModel.nodes[resource.clusterId]?
+            .first { $0.name == resource.name }?.spec?.unschedulable ?? false
+    }
 
     var body: some View {
         // Pod-specific: open full-window logs and exec
@@ -24,65 +73,42 @@ struct ResourceContextMenu: View {
 
         // Workload actions
         if [.deployments, .statefulSets, .daemonSets].contains(resource.resourceType) {
-            Button {
-                Task {
-                    guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                    try? await client.restart(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace)
-                    await viewModel.refresh()
-                }
-            } label: {
+            Button { request(.restart) } label: {
                 Label("Restart", systemImage: "arrow.clockwise")
             }
         }
 
         if [.deployments, .statefulSets, .replicaSets].contains(resource.resourceType) {
-            Button {
-                Task {
-                    guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                    // Quick scale to 0 / scale up options
-                    try? await client.scale(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace, replicas: 0)
-                    await viewModel.refresh()
-                }
-            } label: {
+            Button { request(.scaleToZero) } label: {
                 Label("Scale to 0", systemImage: "arrow.down.to.line")
             }
         }
 
         // CronJob actions
         if resource.resourceType == .cronJobs {
-            Button {
-                Task {
-                    guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                    try? await client.triggerCronJob(name: resource.name, namespace: resource.namespace)
-                    await viewModel.refresh()
-                }
-            } label: {
+            Button { request(.triggerJob) } label: {
                 Label("Trigger Job", systemImage: "bolt")
+            }
+            let suspended = isCronJobSuspended
+            Button { request(.setCronJobSuspended(!suspended)) } label: {
+                Label(suspended ? "Resume" : "Suspend",
+                      systemImage: suspended ? "play" : "pause")
+            }
+        }
+
+        // Pod eviction — honours PodDisruptionBudgets, unlike a plain delete.
+        if resource.resourceType == .pods {
+            Button { request(.evict) } label: {
+                Label("Evict", systemImage: "arrow.uturn.right")
             }
         }
 
         // Node actions
         if resource.resourceType == .nodes {
-            Button {
-                Task {
-                    guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                    let body = try? JSONSerialization.data(withJSONObject: ["spec": ["unschedulable": true]])
-                    if let body { try? await client.patch(resourceType: .nodes, name: resource.name, namespace: nil, body: body) }
-                    await viewModel.refresh()
-                }
-            } label: {
-                Label("Cordon", systemImage: "nosign")
-            }
-
-            Button {
-                Task {
-                    guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                    let body = try? JSONSerialization.data(withJSONObject: ["spec": ["unschedulable": false]])
-                    if let body { try? await client.patch(resourceType: .nodes, name: resource.name, namespace: nil, body: body) }
-                    await viewModel.refresh()
-                }
-            } label: {
-                Label("Uncordon", systemImage: "checkmark.circle")
+            let cordoned = isNodeCordoned
+            Button { request(.setCordoned(!cordoned)) } label: {
+                Label(cordoned ? "Uncordon" : "Cordon",
+                      systemImage: cordoned ? "checkmark.circle" : "nosign")
             }
         }
 
@@ -117,13 +143,7 @@ struct ResourceContextMenu: View {
 
         Divider()
 
-        Button(role: .destructive) {
-            Task {
-                guard let client = viewModel.activeClients[resource.clusterId] else { return }
-                try? await client.delete(resourceType: resource.resourceType, name: resource.name, namespace: resource.namespace)
-                await viewModel.refresh()
-            }
-        } label: {
+        Button(role: .destructive) { request(.delete) } label: {
             Label("Delete", systemImage: "trash")
         }
     }
