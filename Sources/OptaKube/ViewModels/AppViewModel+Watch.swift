@@ -265,6 +265,13 @@ extension AppViewModel {
 
         self[keyPath: kp][cid] = items
         if let rv = latestRV { resourceVersions[cid] = rv }
+
+        // Pod-restart notifications were only ever fed from `loadResources`, so they
+        // effectively required sitting on the Pods list pressing ⌘R. Feed them from the
+        // live stream too, which is where a restart actually shows up first.
+        if let pods = items as? [Pod] {
+            NotificationsService.shared.observe(pods: pods, clusterId: cid)
+        }
         // Live events are a refresh. Without this the status bar showed the last *list*
         // time, so a healthy stream and a frozen one both read "42m ago".
         lastRefreshTime = Date()

@@ -3,8 +3,13 @@ import Charts
 
 struct ClusterOverview: View {
     @Environment(AppViewModel.self) private var viewModel
-    @State private var clusterEvents: [K8sEvent] = []
-    @State private var isLoadingEvents = false
+    // Keyed by cluster. These were single values, while `loadOverviewData` calls
+    // `loadEvents(for:)` once per cluster in a loop — so each call overwrote the last and
+    // every cluster card showed the *same* events. `eventsSection(for:)` took a clusterId
+    // and never used it.
+    @State private var clusterEvents: [String: [K8sEvent]] = [:]
+    @State private var loadingEvents: Set<String> = []
+    @State private var eventsErrors: [String: String] = [:]
     @State private var refreshTimer: Task<Void, Never>?
 
     var body: some View {
@@ -350,6 +355,8 @@ struct ClusterOverview: View {
 
     @ViewBuilder
     private func eventsSection(for clusterId: String) -> some View {
+        let events = clusterEvents[clusterId] ?? []
+        let isLoadingEvents = loadingEvents.contains(clusterId)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Recent Events")
@@ -361,13 +368,19 @@ struct ClusterOverview: View {
                 }
             }
 
-            if clusterEvents.isEmpty && !isLoadingEvents {
+            if let failure = eventsErrors[clusterId] {
+                Label(failure, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .padding(.vertical, 8)
+            } else if events.isEmpty && !isLoadingEvents {
                 Text("No recent events")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
-                ForEach(clusterEvents.prefix(20), id: \.id) { event in
+                ForEach(events.prefix(20), id: \.id) { event in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: event.type == "Warning" ? "exclamationmark.triangle.fill" : "info.circle.fill")
                             .font(.caption)
@@ -397,7 +410,7 @@ struct ClusterOverview: View {
                     }
                     .padding(.vertical, 2)
 
-                    if event.id != clusterEvents.prefix(20).last?.id {
+                    if event.id != events.prefix(20).last?.id {
                         Divider()
                     }
                 }
@@ -488,7 +501,7 @@ struct ClusterOverview: View {
 
     private func loadEvents(for clusterId: String) {
         guard let client = viewModel.activeClients[clusterId] else { return }
-        isLoadingEvents = true
+        loadingEvents.insert(clusterId)
         Task {
             do {
                 let events = try await client.listEvents(namespace: nil)
@@ -496,11 +509,18 @@ struct ClusterOverview: View {
                     (e1.metadata.creationTimestamp ?? .distantPast) > (e2.metadata.creationTimestamp ?? .distantPast)
                 }
                 await MainActor.run {
-                    clusterEvents = sorted
-                    isLoadingEvents = false
+                    clusterEvents[clusterId] = sorted
+                    eventsErrors.removeValue(forKey: clusterId)
+                    loadingEvents.remove(clusterId)
                 }
             } catch {
-                await MainActor.run { isLoadingEvents = false }
+                // "No recent events" is a claim about the cluster. Don't make it when the
+                // request failed — a 403 on events is common in restricted namespaces.
+                let message = error.localizedDescription
+                await MainActor.run {
+                    eventsErrors[clusterId] = message
+                    loadingEvents.remove(clusterId)
+                }
             }
         }
     }

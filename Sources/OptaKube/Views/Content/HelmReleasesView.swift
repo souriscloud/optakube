@@ -54,7 +54,39 @@ struct HelmReleasesView: View {
                     TableColumn("App") { row in Text(row.release.appVersion).font(.caption).foregroundStyle(.secondary) }.width(80)
                     TableColumn("Updated") { row in Text(shortDate(row.release.updated)).font(.caption).foregroundStyle(.secondary) }.width(min: 90, ideal: 150)
                 }
-                .contextMenu(forSelectionType: HelmRow.ID.self) { _ in } primaryAction: { ids in
+                // The builder was empty, so right-clicking a release opened a blank menu
+                // while every other table has a real one — and the only route to the detail
+                // sheet was noticing the "double-click to inspect" hint below.
+                .contextMenu(forSelectionType: HelmRow.ID.self) { ids in
+                    if let id = ids.first, let row = rows.first(where: { $0.id == id }) {
+                        Button {
+                            selected = row
+                        } label: {
+                            Label("Inspect Release…", systemImage: "magnifyingglass")
+                        }
+                        Divider()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(row.release.name, forType: .string)
+                        } label: {
+                            Label("Copy Name", systemImage: "doc.on.clipboard")
+                        }
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                "\(row.release.namespace)/\(row.release.name)", forType: .string)
+                        } label: {
+                            Label("Copy Full Name", systemImage: "doc.on.clipboard.fill")
+                        }
+                        Button {
+                            let cmd = "helm status \(row.release.name) -n \(row.release.namespace)"
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(cmd, forType: .string)
+                        } label: {
+                            Label("Copy helm Command", systemImage: "terminal")
+                        }
+                    }
+                } primaryAction: { ids in
                     if let id = ids.first, let row = rows.first(where: { $0.id == id }) { selected = row }
                 }
             }

@@ -5,6 +5,8 @@ struct ResourceListView: View {
     @Binding var selectedResource: ResourceIdentifier?
     /// Custom-resource instance currently open in the YAML editor sheet.
     @State private var crdEditItem: GenericK8sResource?
+    @State private var crdDeleteItem: GenericK8sResource?
+    @State private var crdSelection: GenericK8sResource.ID?
     /// Multi-row selection. Drives the inspector when exactly one row is selected, and
     /// the bulk-action bar when two or more are.
     @State private var multiSelection = Set<ResourceIdentifier>()
@@ -357,6 +359,23 @@ struct ResourceListView: View {
                 succeeded = "Deleted \(rid.name)."
             }
             bulkOutcome = BulkOutcome(message: succeeded, isError: false)
+        } catch {
+            bulkOutcome = BulkOutcome(message: error.localizedDescription, isError: true)
+        }
+        await viewModel.refresh()
+    }
+
+    private func deleteCustomResource(_ item: GenericK8sResource, crd: CRDDefinition) async {
+        let cid = clusterId(forCRDItem: item)
+        guard let client = viewModel.activeClients[cid] else {
+            bulkOutcome = BulkOutcome(message: "Not connected to this cluster.", isError: true)
+            return
+        }
+        do {
+            try await client.deleteCustomResource(
+                crd: crd, name: item.name,
+                namespace: item.namespace.isEmpty ? nil : item.namespace)
+            bulkOutcome = BulkOutcome(message: "Deleted \(item.name).", isError: false)
         } catch {
             bulkOutcome = BulkOutcome(message: error.localizedDescription, isError: true)
         }
@@ -1081,18 +1100,14 @@ struct ResourceListView: View {
                 description: Text("No custom resources found")
             )
         } else {
-            Table(filtered) {
+            // The table had no `selection:` and no `primaryAction:`, so clicking a custom
+            // resource did nothing and double-clicking did nothing — the only route in was
+            // right-clicking the Name cell specifically, whose menu had two items.
+            Table(filtered, selection: $crdSelection) {
                 TableColumn("Name") { item in
                     Text(item.name)
                         .fontWeight(.medium)
                         .foregroundStyle(Color(red: 0.29, green: 0.62, blue: 1.0))
-                        .contextMenu {
-                            Button("Edit YAML…") { crdEditItem = item }
-                            Button("Copy Name") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(item.name, forType: .string)
-                            }
-                        }
                 }
                 .width(min: 150, ideal: 250)
 
@@ -1118,6 +1133,54 @@ struct ResourceListView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .width(min: 100, ideal: 150)
+            }
+            .contextMenu(forSelectionType: GenericK8sResource.ID.self) { ids in
+                if let id = ids.first, let item = filtered.first(where: { $0.id == id }) {
+                    Button {
+                        crdEditItem = item
+                    } label: {
+                        Label("Edit YAML…", systemImage: "pencil")
+                    }
+                    Divider()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(item.name, forType: .string)
+                    } label: {
+                        Label("Copy Name", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        let ns = item.namespace.isEmpty ? "" : " -n \(item.namespace)"
+                        let cmd = "kubectl get \(crd.plural).\(crd.group) \(item.name)\(ns)"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(cmd, forType: .string)
+                    } label: {
+                        Label("Copy kubectl Command", systemImage: "terminal")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        crdDeleteItem = item
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            } primaryAction: { ids in
+                if let id = ids.first, let item = filtered.first(where: { $0.id == id }) {
+                    crdEditItem = item
+                }
+            }
+            .confirmationDialog("Delete \(crdDeleteItem?.name ?? "")?",
+                                isPresented: Binding(get: { crdDeleteItem != nil },
+                                                     set: { if !$0 { crdDeleteItem = nil } }),
+                                titleVisibility: .visible,
+                                presenting: crdDeleteItem) { item in
+                Button("Delete", role: .destructive) {
+                    let target = item
+                    crdDeleteItem = nil
+                    Task { await deleteCustomResource(target, crd: crd) }
+                }
+                Button("Cancel", role: .cancel) { crdDeleteItem = nil }
+            } message: { _ in
+                Text("This action cannot be undone.")
             }
             .sheet(item: $crdEditItem) { item in
                 CRDInstanceDetailView(

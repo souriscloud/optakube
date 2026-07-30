@@ -20,6 +20,16 @@
     <string>800</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © Souris.CLOUD. MIT licensed.</string>
+    <!-- macOS 15 gates local-network access for unsandboxed apps too, and for a Kubernetes
+         client that is the common case: kind, minikube, k3d and most on-prem API servers
+         live on 127.0.0.1 or a private range. Without a purpose string the user gets a
+         bare, unexplained permission prompt — or an inexplicable connection failure. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>OptaKube connects to the Kubernetes clusters in your kubeconfig. Local clusters such as kind, minikube, or an on-premises API server are reached over your local network.</string>
     <key>NSMainNibFile</key>
     <string></string>
     <key>NSPrincipalClass</key>
@@ -28,8 +38,6 @@
     <string>https://raw.githubusercontent.com/souriscloud/optakube/master/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>4uTQZEdMy3jrq7GANt1oiPJuTk1q5pKHJLf6xMjiWz8=</string>
-    <key>com.apple.security.network.client</key>
-    <true/>
     <!-- OptaKube connects to user-specified Kubernetes API servers, signed by self-
          managed cluster CAs that ATS's default policy rejects even after our delegate
          approves the server trust (ATS also enforces cert-algorithm/TLS-version checks

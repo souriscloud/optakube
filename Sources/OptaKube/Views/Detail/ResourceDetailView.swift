@@ -596,29 +596,38 @@ struct ResourceDetailView: View {
                     name: resource.name,
                     namespace: resource.namespace
                 )
-                if let json = try? JSONSerialization.jsonObject(with: data) {
-                    // Convert JSON to YAML using Yams
-                    let yamlStr: String
-                    do {
-                        yamlStr = try Yams.dump(object: json, sortKeys: true)
-                    } catch {
-                        // Fallback to pretty JSON if YAML conversion fails
-                        if let prettyData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
-                           let pretty = String(data: prettyData, encoding: .utf8) {
-                            yamlStr = pretty
-                        } else {
-                            yamlStr = String(data: data, encoding: .utf8) ?? ""
-                        }
-                    }
+                guard let json = try? JSONSerialization.jsonObject(with: data) else {
+                    // A 2xx body that isn't JSON — an HTML page from an intercepting proxy
+                    // or SSO portal, most often. This fell through every branch, leaving
+                    // "Loading YAML..." on screen permanently. Show the raw body instead.
+                    let raw = String(data: data, encoding: .utf8) ?? "(unreadable response)"
                     await MainActor.run {
-                        yamlContent = yamlStr
+                        yamlContent = raw
                         isLoadingYAML = false
                     }
-                    // Compute highlighting in background (shared highlighter)
-                    let highlighted = YAMLHighlighter.attributedString(yamlStr)
-                    await MainActor.run {
-                        highlightedYAML = highlighted
+                    return
+                }
+                // Convert JSON to YAML using Yams
+                let yamlStr: String
+                do {
+                    yamlStr = try Yams.dump(object: json, sortKeys: true)
+                } catch {
+                    // Fallback to pretty JSON if YAML conversion fails
+                    if let prettyData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+                       let pretty = String(data: prettyData, encoding: .utf8) {
+                        yamlStr = pretty
+                    } else {
+                        yamlStr = String(data: data, encoding: .utf8) ?? ""
                     }
+                }
+                await MainActor.run {
+                    yamlContent = yamlStr
+                    isLoadingYAML = false
+                }
+                // Compute highlighting in background (shared highlighter)
+                let highlighted = YAMLHighlighter.attributedString(yamlStr)
+                await MainActor.run {
+                    highlightedYAML = highlighted
                 }
             } catch {
                 await MainActor.run {

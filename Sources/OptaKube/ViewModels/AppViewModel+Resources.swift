@@ -8,6 +8,17 @@ import Foundation
 
 extension AppViewModel {
     func refresh() async {
+        // ⌘R and the toolbar Refresh button both land here, and it used to only ever
+        // reload resource lists — so in the Helm and Events browsers Refresh silently did
+        // nothing, and neither view had auto-refresh either. Both were frozen once loaded.
+        if showHelmReleases {
+            await loadHelmReleases()
+            return
+        }
+        if showClusterEvents {
+            await loadClusterEvents()
+            return
+        }
         for id in selectedClusterIds {
             if let crd = selectedCRD {
                 await loadCustomResources(crd: crd, for: id)

@@ -32,8 +32,17 @@ final class UpdateController: NSObject {
         // until the next scheduled tick. Kick off a silent background check on
         // launch so updates land on next open. The standard driver only surfaces
         // UI when an update is actually found, so this is invisible when current.
+        //
+        // Gated on the user's own preference. Sparkle's documentation is explicit that
+        // `checkForUpdatesInBackground` should only be called when
+        // `automaticallyChecksForUpdates` is enabled, both because calling it later can
+        // interfere with the scheduler and because someone who declined automatic checks
+        // should not have the app reach out to GitHub on every launch regardless — this is
+        // a tool that runs inside enterprise networks.
         DispatchQueue.main.async { [weak self] in
-            self?.standardController?.updater.checkForUpdatesInBackground()
+            guard let updater = self?.standardController?.updater,
+                  updater.automaticallyChecksForUpdates else { return }
+            updater.checkForUpdatesInBackground()
         }
     }
 
