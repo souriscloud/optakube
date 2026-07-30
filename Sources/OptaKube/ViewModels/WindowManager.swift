@@ -26,6 +26,23 @@ final class WindowManager {
         activeWindows[windowId]
     }
 
+    /// The view model for the frontmost cluster window.
+    ///
+    /// Menu commands need this. Iterating `activeWindows` and taking the first entry —
+    /// which is what the ⌘1–9 resource shortcuts did — walks an unordered dictionary, so
+    /// with two windows open the shortcut changed an arbitrary one, quite possibly a
+    /// different cluster than the one being looked at.
+    var focusedViewModel: AppViewModel? {
+        if let key = NSApplication.shared.keyWindow,
+           let id = windowRefs.first(where: { $0.value === key })?.key,
+           let vm = activeWindows[id] {
+            return vm
+        }
+        // With exactly one window there's no ambiguity, even if key-window lookup fails
+        // (e.g. focus is in a sheet or the menu bar).
+        return activeWindows.count == 1 ? activeWindows.values.first : nil
+    }
+
     func registerWindow(_ window: NSWindow, for windowId: String) {
         windowRefs[windowId] = window
     }

@@ -74,6 +74,21 @@ struct LogStreamView: View {
     @State private var isStreaming = false
     @State private var isLoadingInitial = true
     @State private var streamTasks: [String: Task<Void, Never>] = [:]
+    /// Why the stream produced nothing, shown in place of an unexplained empty pane.
+    @State private var streamError: String?
+    @State private var exportOutcome: String?
+    @State private var exportFailed = false
+
+    /// Settings ▸ Appearance ▸ Max log lines. Nothing read this before, so the buffer and
+    /// history depth were both hardcoded and the stepper did nothing at all.
+    @AppStorage("maxLogLines") private var maxLogLines = 10000
+
+    private var maxBufferedLines: Int { max(maxLogLines, 1000) }
+    /// Trim back to 80% so trimming is amortised rather than happening on every line.
+    private var trimTargetLines: Int { max(Int(Double(maxBufferedLines) * 0.8), 800) }
+    /// How much history to request per container. Capped so a large buffer setting doesn't
+    /// turn into an enormous initial request per pod.
+    private var historyLineCount: Int { min(maxBufferedLines, 2000) }
 
     // Container toggles
     @State private var containerToggles: [ContainerToggle] = []
@@ -181,6 +196,27 @@ struct LogStreamView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                } else if let streamError, logLines.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("No logs")
+                            .font(.subheadline)
+                        Text(streamError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: 420)
+                        if showPrevious {
+                            Text("The \"Previous\" toggle only works for a container that has already restarted.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Button("Retry") { restartStreaming() }
+                            .controlSize(.small)
+                    }
+                    .padding()
                 }
             }
 
@@ -198,6 +234,13 @@ struct LogStreamView: View {
         .onDisappear {
             stopAllStreams()
             rateTimer?.cancel()
+        }
+        .alert(exportFailed ? "Export failed" : "Logs exported",
+               isPresented: Binding(get: { exportOutcome != nil },
+                                    set: { if !$0 { exportOutcome = nil } })) {
+            Button("OK", role: .cancel) { exportOutcome = nil }
+        } message: {
+            Text(exportOutcome ?? "")
         }
         // Reconcile streams when the user toggles a container on/off.
         .onChange(of: enabledContainerIds) { _, _ in syncStreams() }
@@ -933,16 +976,18 @@ struct LogStreamView: View {
             isStreaming = true
             let task = Task {
                 var retries = 0
+                var lastError: Error?
                 while !Task.isCancelled && retries < 3 {
                     do {
                         let stream = client.streamLogs(
                             namespace: namespace,
                             podName: podName,
                             container: containerName,
-                            tailLines: 500,
+                            tailLines: historyLineCount,
                             previous: showPrevious
                         )
                         retries = 0
+                        lastError = nil
 
                         // Buffer initial history lines for sorting
                         var historyBuffer: [(Date, String)] = []
@@ -975,8 +1020,10 @@ struct LogStreamView: View {
                                     logCounter += 1
                                     logLines.append(LogLine(id: logCounter, text: line, timestamp: timestamp, podName: podName, containerName: containerName ?? "default"))
                                     recentCount += 1
-                                    if logLines.count > 15000 {
-                                        logLines.removeFirst(logLines.count - 12000)
+                                    // Honours the Settings "Max log lines" stepper, which
+                                    // nothing read before — the buffer was hardcoded.
+                                    if logLines.count > maxBufferedLines {
+                                        logLines.removeFirst(logLines.count - trimTargetLines)
                                     }
                                 }
                             }
@@ -999,14 +1046,23 @@ struct LogStreamView: View {
                         break
                     } catch {
                         retries += 1
+                        lastError = error
                         guard !Task.isCancelled else { break }
                         try? await Task.sleep(for: .seconds(Double(retries) * 2))
                     }
                 }
+                // Report why the stream never produced anything. This error was thrown
+                // away, so a container name that isn't valid for the pod, a 403 on
+                // pods/log, or the Previous toggle on a pod with no prior container all
+                // showed ~12s of "Connecting…" followed by a blank pane and no reason.
+                let failure = lastError
                 await MainActor.run {
                     isLoadingInitial = false
                     streamTasks.removeValue(forKey: streamKey)
                     if streamTasks.isEmpty { isStreaming = false }
+                    if let failure, logLines.isEmpty {
+                        streamError = failure.localizedDescription
+                    }
                 }
             }
             streamTasks[streamKey] = task
@@ -1033,11 +1089,17 @@ struct LogStreamView: View {
         isStreaming = !streamTasks.isEmpty
     }
 
+    /// Retry after a failed stream, from the error state's button.
+    private func restartStreaming() {
+        restartAllStreams()
+    }
+
     private func restartAllStreams() {
         stopAllStreams()
         logLines.removeAll()
         logCounter = 0
         isLoadingInitial = true
+        streamError = nil
         startStreaming()
     }
 
@@ -1130,7 +1192,16 @@ struct LogStreamView: View {
             if allPodNames.count > 1 { prefix += "\(line.podName)/\(line.containerName) | " }
             return prefix + line.text
         }
-        try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        // A failed save used to be silent — exporting to a read-only location wrote
+        // nothing and said nothing, and there was no confirmation on success either.
+        do {
+            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            exportOutcome = "Saved \(lines.count) line\(lines.count == 1 ? "" : "s") to \(url.lastPathComponent)."
+            exportFailed = false
+        } catch {
+            exportOutcome = "Couldn't save to \(url.lastPathComponent).\n\n\(error.localizedDescription)"
+            exportFailed = true
+        }
     }
 
     private func openLogsInWindow() {

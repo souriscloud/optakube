@@ -25,6 +25,13 @@ struct OptaKubeApp: App {
         .windowStyle(.titleBar)
         .defaultSize(width: 1200, height: 800)
         .commands {
+            // Suppress SwiftUI's synthesized File ▸ New Window for this WindowGroup. It
+            // took ⌘N (colliding with the toolbar's create-resource button) and opened a
+            // cluster window with a nil windowId, which has no view model and so sat on
+            // "Connecting…" forever with no error and no way out but closing it. New
+            // windows come from the Welcome hub, which is the documented entry point.
+            CommandGroup(replacing: .newItem) {}
+
             // About
             CommandGroup(replacing: .appInfo) {
                 Button("About OptaKube") {
@@ -98,11 +105,9 @@ struct OptaKubeApp: App {
     }
 
     private func switchResourceType(_ type: ResourceType) {
-        for (_, vm) in WindowManager.shared.activeWindows {
-            vm.selectBuiltInType(type)
-            Task { await vm.refresh() }
-            break
-        }
+        guard let vm = WindowManager.shared.focusedViewModel else { return }
+        vm.selectBuiltInType(type)
+        Task { await vm.refresh() }
     }
 }
 
@@ -117,8 +122,25 @@ struct ClusterWindowView: View {
                 MainWindow()
                     .environment(vm)
             } else {
-                ProgressView("Connecting...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Belt and braces for a window opened without a usable id (a restored
+                // session, or any path that bypasses the Welcome hub). This used to be an
+                // indefinite "Connecting…" spinner with no explanation and no escape.
+                VStack(spacing: 12) {
+                    Image(systemName: "square.stack.3d.up.slash")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text("No cluster in this window")
+                        .font(.title3)
+                        .fontWeight(.medium)
+                    Text("Pick a cluster from the welcome window to open a session.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button("Open Welcome Window") {
+                        WindowManager.shared.showWelcomeWindow()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(WindowAccessor(windowId: windowId))
