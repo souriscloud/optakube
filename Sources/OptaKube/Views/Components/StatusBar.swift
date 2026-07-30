@@ -18,6 +18,10 @@ struct StatusBar: View {
                     Text(customStore.displayName(for: conn))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    // The dot above is the user's chosen cluster colour, not a health
+                    // indicator — it looks like one, which is exactly why a frozen window
+                    // read as healthy. Live updates get their own explicit badge.
+                    watchBadge(for: conn.id)
                 }
             }
 
@@ -38,7 +42,8 @@ struct StatusBar: View {
                 .foregroundStyle(.blue)
             }
 
-            // Error
+            // Error. Dismissible, and the full text is available on hover — it used to be
+            // a 200pt truncated line with no way to read the rest or clear it.
             if let error = viewModel.errorMessage {
                 Divider().frame(height: 12)
                 HStack(spacing: 3) {
@@ -48,7 +53,16 @@ struct StatusBar: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: 200)
+                    Button {
+                        viewModel.errorMessage = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss")
                 }
+                .help(error)
             }
 
             Spacer()
@@ -109,6 +123,26 @@ struct StatusBar: View {
         .background(.bar)
     }
 
+    /// Shows only when live updates are *not* healthy. A silent, always-present "live"
+    /// badge would just become furniture; the useful signal is the exception.
+    @ViewBuilder
+    private func watchBadge(for clusterId: String) -> some View {
+        switch viewModel.watchHealth[clusterId] {
+        case .live, nil:
+            EmptyView()
+        case .reconnecting:
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .help("Live updates interrupted — reconnecting.")
+        case .stale(let reason):
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .help("Live updates stopped, polling instead. \(reason)")
+        }
+    }
+
     private func lastRefreshText(_ date: Date) -> String {
         let interval = Date().timeIntervalSince(date)
         if interval < 5 { return "just now" }
@@ -135,7 +169,29 @@ struct StatusBar: View {
             case .cronJobs: count += viewModel.cronJobs[clusterId]?.count ?? 0
             case .configMaps: count += viewModel.configMaps[clusterId]?.count ?? 0
             case .secrets: count += viewModel.secrets[clusterId]?.count ?? 0
-            default: break
+            // These 21 used to fall into `default: break`, so the footer read "0 ingresses"
+            // with 47 of them on screen.
+            case .ingresses: count += viewModel.ingresses[clusterId]?.count ?? 0
+            case .ingressClasses: count += viewModel.ingressClasses[clusterId]?.count ?? 0
+            case .persistentVolumes: count += viewModel.persistentVolumes[clusterId]?.count ?? 0
+            case .persistentVolumeClaims: count += viewModel.persistentVolumeClaims[clusterId]?.count ?? 0
+            case .networkPolicies: count += viewModel.networkPolicies[clusterId]?.count ?? 0
+            case .serviceAccounts: count += viewModel.serviceAccounts[clusterId]?.count ?? 0
+            case .horizontalPodAutoscalers: count += viewModel.horizontalPodAutoscalers[clusterId]?.count ?? 0
+            case .namespaces: count += viewModel.namespaces[clusterId]?.count ?? 0
+            case .endpoints: count += viewModel.endpoints[clusterId]?.count ?? 0
+            case .roles: count += viewModel.roles[clusterId]?.count ?? 0
+            case .roleBindings: count += viewModel.roleBindings[clusterId]?.count ?? 0
+            case .clusterRoles: count += viewModel.clusterRoles[clusterId]?.count ?? 0
+            case .clusterRoleBindings: count += viewModel.clusterRoleBindings[clusterId]?.count ?? 0
+            case .storageClasses: count += viewModel.storageClasses[clusterId]?.count ?? 0
+            case .resourceQuotas: count += viewModel.resourceQuotas[clusterId]?.count ?? 0
+            case .podDisruptionBudgets: count += viewModel.podDisruptionBudgets[clusterId]?.count ?? 0
+            case .limitRanges: count += viewModel.limitRanges[clusterId]?.count ?? 0
+            case .priorityClasses: count += viewModel.priorityClasses[clusterId]?.count ?? 0
+            case .leases: count += viewModel.leases[clusterId]?.count ?? 0
+            case .mutatingWebhookConfigurations: count += viewModel.mutatingWebhookConfigurations[clusterId]?.count ?? 0
+            case .validatingWebhookConfigurations: count += viewModel.validatingWebhookConfigurations[clusterId]?.count ?? 0
             }
         }
         return "\(count) \(type.displayName.lowercased())"

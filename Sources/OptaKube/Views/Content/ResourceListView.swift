@@ -9,6 +9,13 @@ struct ResourceListView: View {
     /// the bulk-action bar when two or more are.
     @State private var multiSelection = Set<ResourceIdentifier>()
     @State private var showBulkDeleteConfirm = false
+    @State private var bulkOutcome: BulkOutcome?
+
+    struct BulkOutcome: Identifiable {
+        let id = UUID()
+        let message: String
+        let isError: Bool
+    }
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -30,6 +37,28 @@ struct ResourceListView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if allItems.isEmpty, let failure = loadFailure {
+                // Distinguishing "nothing here" from "we couldn't look" matters most on
+                // Secrets and RBAC types: a 403 used to render the friendly empty state,
+                // so users concluded the namespace was empty.
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.orange)
+                    Text("Couldn't list \(viewModel.selectedResourceType.displayName)")
+                        .font(.title3)
+                        .fontWeight(.medium)
+                    Text(failure)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: 420)
+                    Button("Retry") { Task { await viewModel.refresh() } }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if allItems.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: viewModel.selectedResourceType.systemImage)
@@ -38,7 +67,11 @@ struct ResourceListView: View {
                     Text("No \(viewModel.selectedResourceType.displayName)")
                         .font(.title3)
                         .fontWeight(.medium)
-                    if let ns = viewModel.selectedNamespace {
+                    // Only namespaced types can be filtered by namespace. Offering "Show
+                    // All Namespaces" for StorageClasses or ClusterRoles was misleading:
+                    // the namespace was never in the request, so the button changed nothing.
+                    if viewModel.selectedResourceType.isNamespaced,
+                       let ns = viewModel.selectedNamespace {
                         Text("No resources found in namespace \"\(ns)\"")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -48,8 +81,12 @@ struct ResourceListView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                    } else {
+                    } else if viewModel.selectedResourceType.isNamespaced {
                         Text("No resources found across all namespaces")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("This cluster has no \(viewModel.selectedResourceType.displayName.lowercased())")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -158,6 +195,21 @@ struct ResourceListView: View {
             Button("Delete \(multiSelection.count)", role: .destructive) { bulkDelete() }
             Button("Cancel", role: .cancel) {}
         }
+        .alert(bulkOutcome?.isError == true ? "Some resources were not changed" : "Done",
+               isPresented: Binding(get: { bulkOutcome != nil },
+                                    set: { if !$0 { bulkOutcome = nil } }),
+               presenting: bulkOutcome) { outcome in
+            if outcome.isError {
+                Button("Copy details") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(outcome.message, forType: .string)
+                    bulkOutcome = nil
+                }
+            }
+            Button("OK", role: .cancel) { bulkOutcome = nil }
+        } message: { outcome in
+            Text(outcome.message)
+        }
     }
 
     // MARK: - Bulk Actions
@@ -197,25 +249,54 @@ struct ResourceListView: View {
     }
 
     private func bulkDelete() {
-        let targets = Array(multiSelection)
-        Task {
-            for rid in targets {
-                guard let client = viewModel.activeClients[rid.clusterId] else { continue }
-                try? await client.delete(resourceType: rid.resourceType, name: rid.name, namespace: rid.namespace)
-            }
-            await MainActor.run { multiSelection.removeAll() }
-            await viewModel.refresh()
+        runBulk(Array(multiSelection), verb: "Deleted") { client, rid in
+            try await client.delete(resourceType: rid.resourceType, name: rid.name,
+                                    namespace: rid.namespace)
         }
     }
 
     private func bulkRestart() {
-        let targets = restartableSelection
+        runBulk(restartableSelection, verb: "Restarted") { client, rid in
+            try await client.restart(resourceType: rid.resourceType, name: rid.name,
+                                     namespace: rid.namespace)
+        }
+    }
+
+    /// Applies an operation across a selection and reports what actually happened.
+    /// Previously each item was a bare `try?`, so selecting 20 rows and confirming Delete
+    /// cleared the selection and brought 17 rows back — blocked by a PodDisruptionBudget,
+    /// RBAC or finalizers — with no explanation anywhere.
+    private func runBulk(_ targets: [ResourceIdentifier], verb: String,
+                        _ body: @escaping (K8sAPIClient, ResourceIdentifier) async throws -> Void) {
         Task {
+            var succeeded = 0
+            var failures: [String] = []
             for rid in targets {
-                guard let client = viewModel.activeClients[rid.clusterId] else { continue }
-                try? await client.restart(resourceType: rid.resourceType, name: rid.name, namespace: rid.namespace)
+                guard let client = viewModel.activeClients[rid.clusterId] else {
+                    failures.append("\(rid.name): not connected to its cluster")
+                    continue
+                }
+                do {
+                    try await body(client, rid)
+                    succeeded += 1
+                } catch {
+                    failures.append("\(rid.name): \(error.localizedDescription)")
+                }
             }
-            await MainActor.run { multiSelection.removeAll() }
+            await MainActor.run {
+                multiSelection.removeAll()
+                if failures.isEmpty {
+                    bulkOutcome = BulkOutcome(
+                        message: "\(verb) \(succeeded) resource\(succeeded == 1 ? "" : "s").",
+                        isError: false)
+                } else {
+                    bulkOutcome = BulkOutcome(
+                        message: "\(verb) \(succeeded) of \(targets.count).\n\n"
+                            + failures.prefix(10).joined(separator: "\n")
+                            + (failures.count > 10 ? "\n… and \(failures.count - 10) more." : ""),
+                        isError: true)
+                }
+            }
             await viewModel.refresh()
         }
     }
@@ -798,6 +879,15 @@ struct ResourceListView: View {
             }
         }
         return rows
+    }
+
+    /// The reason the most recent list attempt failed, if any of the selected clusters
+    /// reported one. Used to replace the empty state with an error state.
+    private var loadFailure: String? {
+        for clusterId in viewModel.selectedClusterIds {
+            if let message = viewModel.resourceLoadErrors[clusterId] { return message }
+        }
+        return nil
     }
 
     private var allItems: [ResourceIdentifier] {

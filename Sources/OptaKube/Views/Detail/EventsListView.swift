@@ -17,6 +17,7 @@ struct EventsListView: View {
     let resource: ResourceIdentifier
     @State private var events: [K8sEvent] = []
     @State private var isLoading = true
+    @State private var loadError: String?
     @State private var watchTask: Task<Void, Never>?
 
     var body: some View {
@@ -24,6 +25,26 @@ struct EventsListView: View {
             if isLoading {
                 ProgressView("Loading events...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let loadError {
+                // The retry loop used to exit without ever clearing isLoading and without
+                // reporting anything, so a namespace where listing events is denied showed
+                // "Loading events..." forever.
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                    Text("Couldn't load events")
+                        .font(.subheadline)
+                    Text(loadError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                        .padding(.horizontal)
+                    Button("Retry") { startWatching() }
+                        .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if events.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
@@ -97,13 +118,21 @@ struct EventsListView: View {
         watchTask?.cancel()
         let resource = self.resource
         isLoading = true
+        loadError = nil
         watchTask = Task {
             guard let client = viewModel.activeClients[resource.clusterId] else {
-                await MainActor.run { isLoading = false }
+                await MainActor.run {
+                    isLoading = false
+                    loadError = "Not connected to this cluster."
+                }
                 return
             }
-            let displayName = resource.resourceType.displayName
-            let kind = String(displayName.dropLast(displayName.hasSuffix("s") ? 1 : 0))
+            // Use the type's real Kubernetes kind. This was derived by dropping a trailing
+            // "s" from the display name, which produced "Ingresse", "NetworkPolicie",
+            // "Endpoint", "StorageClasse" and "PriorityClasse" — the involvedObject field
+            // selector matched nothing, so those types showed "No events found" always.
+            let kind = resource.resourceType.kind
+            var lastError: String?
             var failCount = 0
 
             while !Task.isCancelled && failCount < 5 {
@@ -115,8 +144,10 @@ struct EventsListView: View {
                     await MainActor.run {
                         applyFullList(result.items)
                         isLoading = false
+                        loadError = nil
                     }
                     failCount = 0
+                    lastError = nil
 
                     guard let rv = result.resourceVersion else {
                         // No version to watch from — wait a beat and re-list.
@@ -140,8 +171,17 @@ struct EventsListView: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     failCount += 1
+                    lastError = error.localizedDescription
                     let delay = min(3.0 * pow(3.0, Double(failCount - 1)), 60.0)
                     try? await Task.sleep(for: .seconds(delay))
+                }
+            }
+
+            // Fell out of the loop having given up. Say so instead of spinning forever.
+            if !Task.isCancelled, let lastError {
+                await MainActor.run {
+                    isLoading = false
+                    loadError = lastError
                 }
             }
         }

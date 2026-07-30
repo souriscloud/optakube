@@ -381,7 +381,29 @@ struct SpotlightSearch: View {
         case .cronJobs: search(viewModel.cronJobs[clusterId])
         case .configMaps: search(viewModel.configMaps[clusterId])
         case .secrets: search(viewModel.secrets[clusterId])
-        default: break
+        // The remaining 21 fell into `default: break`, so ⌘K never matched them by name —
+        // and typing `:ingress` set the type filter and then returned nothing at all.
+        case .ingresses: search(viewModel.ingresses[clusterId])
+        case .ingressClasses: search(viewModel.ingressClasses[clusterId])
+        case .persistentVolumes: search(viewModel.persistentVolumes[clusterId])
+        case .persistentVolumeClaims: search(viewModel.persistentVolumeClaims[clusterId])
+        case .networkPolicies: search(viewModel.networkPolicies[clusterId])
+        case .serviceAccounts: search(viewModel.serviceAccounts[clusterId])
+        case .horizontalPodAutoscalers: search(viewModel.horizontalPodAutoscalers[clusterId])
+        case .namespaces: search(viewModel.namespaces[clusterId])
+        case .endpoints: search(viewModel.endpoints[clusterId])
+        case .roles: search(viewModel.roles[clusterId])
+        case .roleBindings: search(viewModel.roleBindings[clusterId])
+        case .clusterRoles: search(viewModel.clusterRoles[clusterId])
+        case .clusterRoleBindings: search(viewModel.clusterRoleBindings[clusterId])
+        case .storageClasses: search(viewModel.storageClasses[clusterId])
+        case .resourceQuotas: search(viewModel.resourceQuotas[clusterId])
+        case .podDisruptionBudgets: search(viewModel.podDisruptionBudgets[clusterId])
+        case .limitRanges: search(viewModel.limitRanges[clusterId])
+        case .priorityClasses: search(viewModel.priorityClasses[clusterId])
+        case .leases: search(viewModel.leases[clusterId])
+        case .mutatingWebhookConfigurations: search(viewModel.mutatingWebhookConfigurations[clusterId])
+        case .validatingWebhookConfigurations: search(viewModel.validatingWebhookConfigurations[clusterId])
         }
     }
 
