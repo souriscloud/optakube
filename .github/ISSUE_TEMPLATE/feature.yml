@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest something OptaKube should do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like OptaKube to do?
+      description: What you're trying to accomplish, and why the current behaviour gets in the way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How do you do it today?
+      description: For example, the kubectl command you drop to the terminal for.
+    validations:
+      required: false

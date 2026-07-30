@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in OptaKube behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tip: **Help ▸ Send Feedback** inside OptaKube pre-fills most of this for you,
+        including the version and macOS build.
+
+        Please don't paste kubeconfigs, tokens, or certificate data — OptaKube never
+        sends them anywhere, and neither should a bug report.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to …
+        2. Select … in the sidebar
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OptaKube version
+      description: Shown in OptaKube ▸ About OptaKube.
+      placeholder: "0.8.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.1 (Apple Silicon)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: cluster
+    attributes:
+      label: Cluster type
+      description: Where the cluster runs. Auth method matters more than the vendor.
+      options:
+        - EKS (AWS)
+        - GKE (Google)
+        - AKS (Azure)
+        - kind
+        - minikube
+        - k3s / k3d
+        - Self-hosted / kubeadm
+        - OpenShift
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: How does your kubeconfig authenticate?
+      description: The relevant field under `users:` in your kubeconfig.
+      options:
+        - "exec credential plugin (aws, gcloud, …)"
+        - "client-certificate-data / client-key-data (embedded)"
+        - "client-certificate / client-key (file paths)"
+        - "token"
+        - "auth-provider (oidc, gcp, …)"
+        - Not sure
+    validations:
+      required: false
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: Any error shown in the app. The status-bar error and connection banner are both copyable.
+      render: text
+    validations:
+      required: false

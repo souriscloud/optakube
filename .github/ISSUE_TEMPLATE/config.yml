@@ -1,0 +1,14 @@
+# Blank issues MUST stay enabled. The app's built-in Help ▸ Send Feedback composes a
+# pre-filled `issues/new?title=…&body=…&labels=…` URL (see Services/GitHubFeedback.swift);
+# setting this to false makes GitHub ignore those parameters and forces the template
+# chooser instead, which would silently break the in-app feedback button for every
+# released copy — including versions already installed, which can't be changed.
+blank_issues_enabled: true
+
+contact_links:
+  - name: OptaKube website
+    url: https://apps.souris.cloud/apps/optakube
+    about: Downloads, screenshots, and release notes.
+  - name: Support OptaKube
+    url: https://ko-fi.com/souriscloud
+    about: OptaKube is free. If it saves you time, a coffee is appreciated.

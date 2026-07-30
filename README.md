@@ -29,7 +29,7 @@ OptaKube talks to the Kubernetes API directly over `URLSession` — no bundled `
 - Live updates over the Watch API across every connected cluster at once — bursts are coalesced so a 200-pod rollout stays smooth
 
 **See everything**
-- 20+ built-in resource types — Pods, Deployments, Services, Nodes, StatefulSets, DaemonSets, ReplicaSets, Jobs, CronJobs, ConfigMaps, Secrets, Ingresses, IngressClasses, PVs, PVCs, NetworkPolicies, ServiceAccounts, HPAs, Namespaces, Endpoints
+- 32 built-in resource types — Pods, Deployments, Services, Nodes, StatefulSets, DaemonSets, ReplicaSets, Jobs, CronJobs, ConfigMaps, Secrets, Ingresses, IngressClasses, PVs, PVCs, NetworkPolicies, ServiceAccounts, HPAs, Namespaces, Endpoints, Roles, RoleBindings, ClusterRoles, ClusterRoleBindings, StorageClasses, ResourceQuotas, PodDisruptionBudgets, LimitRanges, PriorityClasses, Leases, and Mutating/ValidatingWebhookConfigurations — each with its own table and detail view
 - **CRD auto-discovery** — browse any Custom Resource Definition installed on the cluster
 - Inline CPU/memory bars in tables, per-container charts, and a cluster overview dashboard
 - Detail views with container tabs, probes, env vars, volume mounts; reveal Secret/ConfigMap values inline
@@ -59,14 +59,16 @@ Or build from source:
 ```bash
 git clone https://github.com/souriscloud/optakube.git
 cd optakube
-swift build -c release
-open .build/release/OptaKube
+swift run
 ```
+
+A from-source build runs the raw binary rather than an app bundle, so it has no icon and
+no auto-update — both correctly no-op without a bundle. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later
-- A kubeconfig (the one `kubectl` already uses)
+- macOS 14 (Sonoma) or later, on **Apple Silicon** (the released DMG is arm64-only)
+- A kubeconfig (the one `kubectl` already uses — `$KUBECONFIG` is honoured)
 - `kubectl` on `PATH` (used for port forwarding and pod exec)
 
 ## Keyboard shortcuts
