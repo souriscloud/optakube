@@ -171,14 +171,48 @@ struct ResourceDetailView: View {
                     if let cm = findResource(\.configMaps) { ConfigMapDetailContent(configMap: cm) }
                 case .secrets:
                     if let secret = findResource(\.secrets) { SecretDetailContent(secret: secret) }
-                case .ingresses, .ingressClasses, .persistentVolumes, .persistentVolumeClaims,
-                     .networkPolicies, .serviceAccounts, .horizontalPodAutoscalers, .namespaces, .endpoints,
-                     .roles, .roleBindings, .clusterRoles, .clusterRoleBindings,
-                     .storageClasses, .resourceQuotas, .podDisruptionBudgets,
-                     .limitRanges, .priorityClasses, .leases,
-                     .mutatingWebhookConfigurations, .validatingWebhookConfigurations:
-                    Text("Detail view not yet available for \(resource.resourceType.displayName)")
-                        .foregroundStyle(.secondary)
+                case .ingresses:
+                    if let ing = findResource(\.ingresses) { IngressDetailContent(ingress: ing) }
+                case .ingressClasses:
+                    if let ic = findResource(\.ingressClasses) { IngressClassDetailContent(ingressClass: ic) }
+                case .persistentVolumes:
+                    if let pv = findResource(\.persistentVolumes) { PersistentVolumeDetailContent(volume: pv) }
+                case .persistentVolumeClaims:
+                    if let pvc = findResource(\.persistentVolumeClaims) { PersistentVolumeClaimDetailContent(claim: pvc) }
+                case .networkPolicies:
+                    if let np = findResource(\.networkPolicies) { NetworkPolicyDetailContent(policy: np) }
+                case .serviceAccounts:
+                    if let sa = findResource(\.serviceAccounts) { ServiceAccountDetailContent(serviceAccount: sa) }
+                case .horizontalPodAutoscalers:
+                    if let hpa = findResource(\.horizontalPodAutoscalers) { HorizontalPodAutoscalerDetailContent(autoscaler: hpa) }
+                case .namespaces:
+                    if let ns = findResource(\.namespaces) { NamespaceDetailContent(namespace: ns) }
+                case .endpoints:
+                    if let ep = findResource(\.endpoints) { EndpointsDetailContent(endpoints: ep) }
+                case .roles:
+                    if let role = findResource(\.roles) { RoleDetailContent(role: role) }
+                case .roleBindings:
+                    if let rb = findResource(\.roleBindings) { RoleBindingDetailContent(roleBinding: rb) }
+                case .clusterRoles:
+                    if let cr = findResource(\.clusterRoles) { ClusterRoleDetailContent(clusterRole: cr) }
+                case .clusterRoleBindings:
+                    if let crb = findResource(\.clusterRoleBindings) { ClusterRoleBindingDetailContent(clusterRoleBinding: crb) }
+                case .storageClasses:
+                    if let sc = findResource(\.storageClasses) { StorageClassDetailContent(storageClass: sc) }
+                case .resourceQuotas:
+                    if let quota = findResource(\.resourceQuotas) { ResourceQuotaDetailContent(resourceQuota: quota) }
+                case .podDisruptionBudgets:
+                    if let pdb = findResource(\.podDisruptionBudgets) { PodDisruptionBudgetDetailContent(budget: pdb) }
+                case .limitRanges:
+                    if let lr = findResource(\.limitRanges) { LimitRangeDetailContent(limitRange: lr) }
+                case .priorityClasses:
+                    if let pc = findResource(\.priorityClasses) { PriorityClassDetailContent(priorityClass: pc) }
+                case .leases:
+                    if let lease = findResource(\.leases) { LeaseDetailContent(lease: lease) }
+                case .mutatingWebhookConfigurations:
+                    if let mwc = findResource(\.mutatingWebhookConfigurations) { MutatingWebhookConfigurationDetailContent(configuration: mwc) }
+                case .validatingWebhookConfigurations:
+                    if let vwc = findResource(\.validatingWebhookConfigurations) { ValidatingWebhookConfigurationDetailContent(configuration: vwc) }
                 }
             }
             .padding()
