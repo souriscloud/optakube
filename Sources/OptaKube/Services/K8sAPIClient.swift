@@ -266,11 +266,16 @@ final class K8sAPIClient: Sendable {
         guard status == errSecSuccess else {
             return (nil, nil, "the system rejected the converted certificate (OSStatus \(status))")
         }
+        // `as? SecIdentity` is rejected: a conditional downcast to a CoreFoundation type
+        // always succeeds, so it wouldn't actually check anything. Compare the CFTypeID
+        // instead — that is a real check, which the subsequent forced cast then relies on.
         guard let itemArray = items as? [[String: Any]],
               let firstItem = itemArray.first,
-              let identity = firstItem[kSecImportItemIdentity as String] as? SecIdentity else {
+              let identityItem = firstItem[kSecImportItemIdentity as String],
+              CFGetTypeID(identityItem as CFTypeRef) == SecIdentityGetTypeID() else {
             return (nil, nil, "the converted certificate contained no usable identity")
         }
+        let identity = identityItem as! SecIdentity
 
         // Also extract the certificate for the TLS delegate
         var certRef: SecCertificate?
