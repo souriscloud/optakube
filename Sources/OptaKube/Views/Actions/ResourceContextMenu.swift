@@ -8,8 +8,8 @@ import AppKit
 /// Actions are therefore posted to the enclosing list view, which owns the dialogs and
 /// reports the outcome — the same indirection the existing `.openFullLogs` /
 /// `.openPodExec` menu items already use.
-struct ResourceActionRequest {
-    enum Kind {
+struct ResourceActionRequest: Sendable {
+    enum Kind: Sendable {
         case restart
         case scaleToZero
         case triggerJob

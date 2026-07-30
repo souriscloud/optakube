@@ -203,9 +203,7 @@ struct ResourceListView: View {
         // Delete had no confirmation at all (while the same Delete in the inspector did),
         // and a mis-click on "Scale to 0" took a Deployment out of production silently.
         .task {
-            let requests = NotificationCenter.default.notifications(named: .performResourceAction)
-            for await note in requests {
-                guard let request = note.object as? ResourceActionRequest else { continue }
+            for await request in Self.actionRequests() {
                 if request.kind.needsConfirmation {
                     pendingAction = request
                 } else {
@@ -281,6 +279,26 @@ struct ResourceListView: View {
     }
 
     // MARK: - Single-resource actions from the context menu
+
+    /// Context-menu action requests, unwrapped to a Sendable value.
+    ///
+    /// `Notification` isn't `Sendable`, so awaiting one directly in a `@MainActor` view body
+    /// crosses an actor boundary with a non-Sendable value — a warning today and an error
+    /// under Swift 6. Unwrapping inside a nonisolated task keeps the Notification there.
+    private static func actionRequests() -> AsyncStream<ResourceActionRequest> {
+        AsyncStream { continuation in
+            let task = Task.detached {
+                let stream = NotificationCenter.default.notifications(named: .performResourceAction)
+                for await note in stream {
+                    if let request = note.object as? ResourceActionRequest {
+                        continuation.yield(request)
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 
     private var confirmationTitle: String {
         guard let request = pendingAction else { return "" }

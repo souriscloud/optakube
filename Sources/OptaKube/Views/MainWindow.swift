@@ -14,6 +14,28 @@ struct MainWindow: View {
     /// Mirrors the Settings slider so changing it takes effect without a relaunch.
     @AppStorage("refreshInterval") private var refreshInterval = 10.0
 
+    /// Wake notifications as `Void` events.
+    ///
+    /// `Notification` isn't `Sendable`, so awaiting one directly in a `@MainActor` view
+    /// body crosses an actor boundary with a non-Sendable value — a warning today and an
+    /// error under Swift 6. Observing behind an `AsyncStream` keeps the notification itself
+    /// on the delivery queue and only sends across what we actually need.
+    private static func wakeEvents() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            // The `for await` runs in a nonisolated task, so the Notification never crosses
+            // into the main actor — only the Void event does.
+            let task = Task.detached {
+                let stream = NSWorkspace.shared.notificationCenter
+                    .notifications(named: NSWorkspace.didWakeNotification)
+                for await _ in stream {
+                    continuation.yield(())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     private struct ConnectionError: Equatable {
         let clusterName: String
         let message: String
@@ -221,9 +243,7 @@ struct MainWindow: View {
         // A socket that was open when the Mac slept is usually half-open on wake: no
         // bytes, no error, and the table quietly stops being true.
         .task {
-            let woke = NSWorkspace.shared.notificationCenter
-                .notifications(named: NSWorkspace.didWakeNotification)
-            for await _ in woke {
+            for await _ in Self.wakeEvents() {
                 await viewModel.restartWatches()
             }
         }
@@ -309,7 +329,7 @@ struct MainWindow: View {
 
 }
 
-struct ResourceIdentifier: Hashable {
+struct ResourceIdentifier: Hashable, Sendable {
     let clusterId: String
     let resourceType: ResourceType
     let name: String
